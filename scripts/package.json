@@ -1,0 +1,12 @@
+{
+  "name": "mushroom-digest",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "digest": "node daily-digest.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

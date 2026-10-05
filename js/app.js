@@ -1,0 +1,787 @@
+// Main application — rendering + event handlers
+import { CONFIG } from './config.js';
+import { requireAuth, logout } from './auth.js';
+import { loadLocal, saveAndSync, pullAndMerge } from './storage.js';
+import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
+import { fetchWeather, fetchHistoricalConditions } from './weather.js';
+import { fetchBiotope } from './osm.js';
+import { scoreFromConditions, statusFromScore, projectDayScore } from './scoring.js';
+
+let state = null;
+let chartInstance = null;
+
+// =========================
+// INIT
+// =========================
+async function init() {
+  await requireAuth();
+  state = loadLocal();
+  state = await pullAndMerge(state);
+  attachEventHandlers();
+  renderAll();
+  await refreshWeatherIfStale();
+}
+
+async function refreshWeatherIfStale() {
+  const today = new Date().toISOString().slice(0, 10);
+  const stale = Object.entries(state.weather).some(([_, w]) => w?.asOf !== today);
+  const missing = state.locations.some(l => !state.weather[l.id]);
+  if (stale || missing) {
+    await syncAllWeather();
+  }
+}
+
+// =========================
+// Sync operations
+// =========================
+async function syncAllWeather() {
+  showToast('Загружаю свежую погоду…');
+  for (const loc of state.locations) {
+    try {
+      const w = await fetchWeather(loc.lat, loc.lon);
+      state.weather[loc.id] = w;
+      if (!loc.elevation && w.elevation) loc.elevation = Math.round(w.elevation);
+    } catch (e) { console.warn('weather fail', loc.name, e); }
+  }
+  saveAndSync(state);
+  renderDashboard();
+  showToast('Погода обновлена');
+}
+
+async function syncBiotope(locId) {
+  const loc = state.locations.find(l => l.id === locId);
+  if (!loc) return;
+  showToast(`Подтягиваю биотоп для «${loc.name}»…`);
+  try {
+    const b = await fetchBiotope(loc.lat, loc.lon);
+    Object.assign(loc, b);
+    saveAndSync(state);
+    renderLocations();
+    showToast('Биотоп подтянут из OSM');
+  } catch (e) {
+    showToast('Не удалось: ' + e.message);
+  }
+}
+
+async function syncHistoricalForDay(dayId) {
+  const day = state.mushroomDays.find(d => d.id === dayId);
+  if (!day) return;
+  const loc = state.locations.find(l => l.id === day.locationId);
+  if (!loc) return;
+  showToast('Подтягиваю исторические условия…');
+  try {
+    const c = await fetchHistoricalConditions(loc.lat, loc.lon, day.date);
+    if (c) {
+      day.conditions = c;
+      saveAndSync(state);
+      renderDays();
+      renderPatterns();
+      showToast('Условия подтянуты');
+    } else {
+      showToast('Условия не найдены');
+    }
+  } catch (e) {
+    showToast('Ошибка: ' + e.message);
+  }
+}
+
+async function syncAllHistorical() {
+  const needs = state.mushroomDays.filter(d => !d.conditions);
+  if (needs.length === 0) { showToast('Все дни уже с условиями'); return; }
+  showToast(`Загружаю условия для ${needs.length} ${needs.length === 1 ? 'дня' : 'дней'}…`);
+  for (const d of needs) {
+    const loc = state.locations.find(l => l.id === d.locationId);
+    if (!loc) continue;
+    try {
+      const c = await fetchHistoricalConditions(loc.lat, loc.lon, d.date);
+      if (c) d.conditions = c;
+      await new Promise(r => setTimeout(r, 150));
+    } catch (e) { console.warn(e); }
+  }
+  saveAndSync(state);
+  renderDays();
+  renderPatterns();
+  showToast('Готово');
+}
+
+// =========================
+// Species utilities
+// =========================
+function allSpecies() { return [...CONFIG.defaultSpecies, ...(state.customSpecies || [])]; }
+
+function speciesCheckboxesHtml(containerId, selected = []) {
+  const chips = allSpecies().map(s => {
+    const isCustom = (state.customSpecies || []).includes(s);
+    const safe = s.replace(/"/g, '&quot;');
+    const safeJs = s.replace(/'/g, "\\'");
+    return `<label class="${selected.includes(s) ? 'checked' : ''}" data-species="${safe}">
+      <input type="checkbox" value="${safe}" ${selected.includes(s) ? 'checked' : ''}>${s}
+      ${isCustom ? `<span class="remove-custom" onclick="event.stopPropagation(); window.app.removeCustomSpecies('${safeJs}', '${containerId}');">×</span>` : ''}
+    </label>`;
+  }).join('');
+  const addInline = `<span class="add-species-inline">
+    <input type="text" id="${containerId}-newspecies" placeholder="+ свой вид" maxlength="40">
+    <button type="button" class="btn sm" onclick="window.app.addCustomSpeciesFromInput('${containerId}')">Добавить</button>
+  </span>`;
+  return chips + addInline;
+}
+
+function wireSpeciesCheckboxes(containerId) {
+  document.querySelectorAll(`#${containerId} > label`).forEach(lab => {
+    if (lab.dataset.wired) return;
+    lab.dataset.wired = '1';
+    lab.addEventListener('click', (e) => {
+      if (e.target.classList.contains('remove-custom')) return;
+      const cb = lab.querySelector('input[type="checkbox"]');
+      if (e.target.tagName !== 'INPUT') cb.checked = !cb.checked;
+      lab.classList.toggle('checked', cb.checked);
+    });
+  });
+  const newInput = document.getElementById(`${containerId}-newspecies`);
+  if (newInput) {
+    newInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addCustomSpeciesFromInput(containerId); }
+    });
+  }
+}
+
+function addCustomSpeciesFromInput(containerId) {
+  const inp = document.getElementById(`${containerId}-newspecies`);
+  if (!inp) return;
+  const raw = (inp.value || '').trim().toLowerCase();
+  if (!raw) return;
+  if (allSpecies().includes(raw)) { showToast(`«${raw}» уже в списке`); inp.value = ''; return; }
+  state.customSpecies = state.customSpecies || [];
+  state.customSpecies.push(raw);
+  saveAndSync(state);
+  const selected = Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`)).map(x => x.value);
+  selected.push(raw);
+  document.getElementById(containerId).innerHTML = speciesCheckboxesHtml(containerId, selected);
+  wireSpeciesCheckboxes(containerId);
+  showToast(`Добавлено: «${raw}»`);
+}
+
+function removeCustomSpecies(name, containerId) {
+  if (!confirm(`Удалить «${name}» из вашего списка?`)) return;
+  state.customSpecies = (state.customSpecies || []).filter(s => s !== name);
+  saveAndSync(state);
+  const selected = Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`)).map(x => x.value).filter(x => x !== name);
+  document.getElementById(containerId).innerHTML = speciesCheckboxesHtml(containerId, selected);
+  wireSpeciesCheckboxes(containerId);
+  showToast(`Удалено: «${name}»`);
+}
+
+// =========================
+// Dashboard
+// =========================
+function renderDashboard() {
+  const loc = state.locations.find(l => l.id === state.activeLocationId) || state.locations[0];
+  if (!loc) {
+    document.getElementById('tab-dashboard').innerHTML = '<div class="empty-state"><p>Добавьте первую локацию на вкладке «Локации».</p></div>';
+    return;
+  }
+
+  const sel = document.getElementById('locationSelector');
+  sel.innerHTML = state.locations.map(l =>
+    `<option value="${l.id}" ${l.id === loc.id ? 'selected' : ''}>${l.name}</option>`
+  ).join('');
+
+  const biotopeStr = Array.isArray(loc.biotope) ? loc.biotope.join(' + ') : (loc.biotope || '');
+  const parts = [
+    `<strong>${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}</strong>`,
+    loc.elevation ? `${loc.elevation} м` : null,
+    biotopeStr || '<em style="color:#A04A3A">биотоп не подтянут</em>'
+  ].filter(Boolean);
+  document.getElementById('locationInfo').innerHTML = parts.join(' · ');
+
+  const w = state.weather[loc.id];
+  if (!w) {
+    document.getElementById('heroVerdict').className = 'verdict yellow';
+    document.getElementById('verdictDot').textContent = '?';
+    document.getElementById('verdictTitle').textContent = 'Погода не загружена';
+    document.getElementById('verdictBody').innerHTML = 'Нажмите «Обновить всё» внизу страницы.';
+    document.getElementById('factorCards').innerHTML = '';
+    document.getElementById('forecastGrid').innerHTML = '';
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+    document.getElementById('checklist').innerHTML = '';
+    return;
+  }
+
+  const todayScore = projectDayScore(w.hist, w.fc, 0);
+  const nextDays = Array.from({ length: Math.min(10, w.fc.dates.length) }, (_, i) => projectDayScore(w.hist, w.fc, i));
+  const greenAhead = nextDays.filter(d => d.status === 'green').length;
+
+  let bestIdx = 0, bestScore = -1;
+  nextDays.forEach((d, i) => { if (d.score > bestScore) { bestScore = d.score; bestIdx = i; } });
+  const bestDate = new Date(w.fc.dates[bestIdx]);
+  const dayNames = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  const bestLabel = `${dayNames[bestDate.getDay()]} ${bestDate.getDate()}.${String(bestDate.getMonth() + 1).padStart(2, '0')}`;
+
+  let title, body;
+  if (todayScore.status === 'green') {
+    title = `Ехать. ${greenAhead} зелёных дня впереди`;
+    body = `Все факторы соблюдены. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя за 10 дн — ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C, влажность ${todayScore.soilM}.`;
+  } else if (todayScore.status === 'yellow') {
+    title = 'Можно, но средне';
+    body = `Условия пограничные. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
+  } else {
+    title = 'Пока не стоит';
+    body = `Score сегодня ${todayScore.score}. Лучший день впереди: <strong>${bestLabel}</strong> (score ${bestScore}).`;
+  }
+  document.getElementById('heroVerdict').className = `verdict ${todayScore.status}`;
+  document.getElementById('verdictDot').textContent = todayScore.status === 'green' ? '▲' : todayScore.status === 'yellow' ? '●' : '✕';
+  document.getElementById('verdictTitle').textContent = title;
+  document.getElementById('verdictBody').innerHTML = body;
+
+  // Factor cards
+  const S = CONFIG.scoring;
+  const smClass = (todayScore.soilM >= S.soilM.ok[0] && todayScore.soilM <= S.soilM.ok[1]) ? 'ok' : (todayScore.soilM >= S.soilM.fair[0] && todayScore.soilM <= S.soilM.fair[1]) ? 'warn' : 'bad';
+  const stClass = (todayScore.soilT >= S.soilT.ok[0] && todayScore.soilT <= S.soilT.ok[1]) ? 'ok' : (todayScore.soilT >= S.soilT.fair[0] && todayScore.soilT <= S.soilT.fair[1]) ? 'warn' : 'bad';
+  const sumClass = (todayScore.rain10d >= S.rain10d.ok[0] && todayScore.rain10d <= S.rain10d.ok[1]) ? 'ok' : (todayScore.rain10d >= S.rain10d.fair[0] && todayScore.rain10d <= S.rain10d.fair[1]) ? 'warn' : 'bad';
+  const triggered = todayScore.rain10d > 10 && todayScore.soilT < 14;
+
+  document.getElementById('factorCards').innerHTML = `
+    <div class="card"><div class="card-label">Осадки / 10 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 15–40 мм</div></div>
+    <div class="card"><div class="card-label">Влажность почвы</div><div class="card-value status-${smClass}">${todayScore.soilM.toFixed(2)}</div><div class="card-note">оптимум 0,25–0,40</div></div>
+    <div class="card"><div class="card-label">Темп. почвы</div><div class="card-value status-${stClass}">${todayScore.soilT} °C</div><div class="card-note">окно 8–14 °C</div></div>
+    <div class="card"><div class="card-label">Холодный толчок</div><div class="card-value status-${triggered ? 'ok' : 'warn'}">${triggered ? 'Да' : '—'}</div><div class="card-note">по условиям</div></div>
+  `;
+
+  // Forecast grid
+  const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  document.getElementById('forecastGrid').innerHTML = w.fc.dates.slice(0, 10).map((d, i) => {
+    const r = nextDays[i];
+    const dt = new Date(d);
+    return `<div class="day ${r.status}${i === 0 ? ' today' : ''}">
+      <div class="day-weekday">${weekdays[dt.getDay()]}</div>
+      <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сегодня' : ''}</div>
+      <div class="day-score">${r.score}</div>
+      <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
+      <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
+    </div>`;
+  }).join('');
+
+  // Chart
+  if (chartInstance) chartInstance.destroy();
+  const ctx = document.getElementById('chart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: w.hist.dates.map(d => d.slice(5)),
+      datasets: [
+        { label: 'Осадки, мм', data: w.hist.rain, backgroundColor: '#8DA6D6', borderWidth: 0, yAxisID: 'y1', order: 2 },
+        { label: 'Влажность почвы', data: w.hist.soilM, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, yAxisID: 'y2', borderWidth: 2.5, order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
+        y1: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: '#F2EBDA' } },
+        y2: { type: 'linear', position: 'right', min: 0.2, max: 0.45, grid: { display: false } }
+      },
+      plugins: { legend: { position: 'top', align: 'end' } }
+    }
+  });
+
+  // Checklist
+  const checks = [
+    { ok: sumClass === 'ok', title: `Σ осадков за 10 дней: ${todayScore.rain10d} мм`, note: 'Норма 15–40 мм для осеннего слоя.' },
+    { ok: smClass === 'ok', title: `Влажность почвы: ${todayScore.soilM}`, note: 'Оптимум 0,25–0,40 м³/м³.' },
+    { ok: stClass === 'ok', title: `Температура почвы: ${todayScore.soilT} °C`, note: 'Окно 8–14 °C для осеннего плодоношения.' },
+    { ok: triggered, title: triggered ? 'Холодный толчок сработал' : 'Холодный толчок не ясен', note: 'Нужно резкое похолодание + возврат тепла.' }
+  ];
+  document.getElementById('checklist').innerHTML = checks.map(c => `
+    <div class="check-row ${c.ok ? 'ok' : 'warn'}">
+      <div class="check-mark">${c.ok ? '✓' : '!'}</div>
+      <div class="check-text"><strong>${c.title}</strong><span>${c.note}</span></div>
+    </div>`).join('');
+}
+
+// =========================
+// Locations
+// =========================
+function renderLocations() {
+  document.getElementById('locationsCount').textContent = state.locations.length;
+  const container = document.getElementById('locationsList');
+  if (state.locations.length === 0) {
+    container.innerHTML = '<div class="empty-state"><p>У вас пока нет сохранённых локаций.</p><button class="btn primary" onclick="window.app.openLocationForm()">+ Добавить первую</button></div>';
+    return;
+  }
+  container.innerHTML = state.locations.map(l => {
+    const biotopeList = Array.isArray(l.biotope) ? l.biotope : (l.biotope ? [l.biotope] : []);
+    const synced = !!l.osmSyncedAt;
+    return `<div class="loc-detail ${l.id === state.activeLocationId ? 'active' : ''}">
+      <div class="loc-detail-head">
+        <div>
+          <div class="loc-detail-title">${l.name} ${l.id === state.activeLocationId ? '<span class="pill active">активна</span>' : ''}</div>
+          <div class="loc-detail-coords">📍 ${l.lat.toFixed(4)}, ${l.lon.toFixed(4)}${l.elevation ? ` · ${l.elevation} м` : ''}</div>
+        </div>
+        <div class="loc-detail-actions">
+          <button class="btn sm" onclick="window.app.setActive('${l.id}')">${l.id === state.activeLocationId ? '✓ активна' : 'Активировать'}</button>
+          <button class="btn sm" onclick="window.app.openLocationForm('${l.id}')">Изменить</button>
+          <button class="btn sm" onclick="window.app.syncBiotope('${l.id}')">⟳ OSM</button>
+          <button class="btn sm danger" onclick="window.app.deleteLocation('${l.id}')">×</button>
+        </div>
+      </div>
+      <div class="loc-detail-body">
+        <div class="loc-detail-row">
+          <div class="loc-detail-label">Биотоп (OSM)</div>
+          <div class="loc-detail-value">${synced ? biotopeList.map(b => `<span class="pill green">${b}</span>`).join(' ') : '<em>не подтянут — кнопка ⟳ OSM</em>'}</div>
+        </div>
+        <div class="loc-detail-row">
+          <div class="loc-detail-label">Админ. район</div>
+          <div class="loc-detail-value">${l.adminArea || '—'}</div>
+        </div>
+        <div class="loc-detail-row">
+          <div class="loc-detail-label">Ближайший объект</div>
+          <div class="loc-detail-value">${l.nearestFeature || '—'}</div>
+        </div>
+        <div class="loc-detail-row">
+          <div class="loc-detail-label">Виды грибов</div>
+          <div class="loc-detail-value">${(l.species || []).length ? l.species.map(s => `<span class="pill green">${s}</span>`).join(' ') : '<em>не указаны</em>'}</div>
+        </div>
+        ${synced ? `<div class="loc-detail-sync">OSM синк: ${l.osmSyncedAt}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function setActive(id) {
+  state.activeLocationId = id;
+  saveAndSync(state);
+  renderAll();
+  switchTab('dashboard');
+}
+
+function openLocationForm(id) {
+  const existing = id ? state.locations.find(l => l.id === id) : null;
+  openModal(`
+    <h3>${existing ? 'Изменить локацию' : 'Новая локация'}</h3>
+    <div class="form-row"><label>Название</label><input id="locName" value="${existing?.name || ''}" placeholder="Напр. Березняк за дачей"></div>
+    <div class="form-row form-grid-2">
+      <div><label>Широта</label><input id="locLat" type="number" step="0.0001" value="${existing?.lat || ''}" placeholder="53.5248"></div>
+      <div><label>Долгота</label><input id="locLon" type="number" step="0.0001" value="${existing?.lon || ''}" placeholder="27.6199"></div>
+    </div>
+    <div class="form-hint" style="background:#FBF3DF;padding:10px 12px;border-radius:6px;margin-bottom:14px">💡 Биотоп, высота и админ-район подтянутся автоматически из OSM и open-meteo после сохранения.</div>
+    <div class="form-row"><label>Виды грибов на этой локации</label><div class="checkboxes" id="locSpecies">${speciesCheckboxesHtml('locSpecies', existing?.species || [])}</div></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="window.app.closeModal()">Отмена</button>
+      <button class="btn primary" onclick="window.app.saveLocation('${id || ''}')">${existing ? 'Сохранить' : 'Добавить'}</button>
+    </div>
+  `);
+  setTimeout(() => wireSpeciesCheckboxes('locSpecies'), 0);
+}
+
+async function saveLocation(id) {
+  const name = document.getElementById('locName').value.trim();
+  const lat = parseFloat(document.getElementById('locLat').value);
+  const lon = parseFloat(document.getElementById('locLon').value);
+  const species = Array.from(document.querySelectorAll('#locSpecies input:checked')).map(x => x.value);
+  if (!name || isNaN(lat) || isNaN(lon)) { alert('Нужны имя и координаты'); return; }
+  let newId = id;
+  if (id) {
+    const i = state.locations.findIndex(l => l.id === id);
+    if (i >= 0) state.locations[i] = { ...state.locations[i], name, lat, lon, species };
+  } else {
+    newId = `loc-${Date.now()}`;
+    state.locations.push({ id: newId, name, lat, lon, species });
+  }
+  saveAndSync(state);
+  closeModal();
+  renderAll();
+  showToast(id ? 'Сохранено' : 'Локация добавлена. Подтягиваю биотоп и погоду…');
+  if (!id) {
+    await Promise.all([syncBiotope(newId), syncAllWeather()]);
+  }
+}
+
+function deleteLocation(id) {
+  if (!confirm('Удалить локацию?')) return;
+  state.locations = state.locations.filter(l => l.id !== id);
+  delete state.weather[id];
+  if (state.activeLocationId === id) state.activeLocationId = state.locations[0]?.id;
+  saveAndSync(state);
+  renderAll();
+  showToast('Удалено');
+}
+
+// =========================
+// Mushroom Days
+// =========================
+function renderDays() {
+  document.getElementById('daysCount').textContent = state.mushroomDays.length;
+  const container = document.getElementById('daysList');
+  if (state.mushroomDays.length === 0) {
+    container.innerHTML = '<div class="empty-state"><p>Пока нет грибных дней.</p><button class="btn primary" onclick="window.app.openDayForm()">+ Добавить первый</button></div>';
+    return;
+  }
+  const sorted = [...state.mushroomDays].sort((a, b) => b.date.localeCompare(a.date));
+  const qLabels = { none: 'пусто', little: 'мало', some: 'средне', many: 'много', jackpot: 'джекпот' };
+  container.innerHTML = sorted.map(d => {
+    const loc = state.locations.find(l => l.id === d.locationId);
+    const dt = new Date(d.date);
+    const dateStr = dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+    const isBlank = d.quantity === 'none';
+    return `<div class="day-card ${isBlank ? 'blank' : ''}">
+      <div>
+        <div class="date">${dateStr}${isBlank ? ' <span style="color:#B45441;font-size:12px">· пустой поход</span>' : ''}</div>
+        <div class="locname">📍 ${loc?.name || '—'}</div>
+        ${isBlank ? `<div style="font-size:12px;color:#8A7C6B;margin-top:6px">искал (не нашёл):</div>` : ''}
+        <div style="margin-top:${isBlank ? '2' : '6'}px">${(d.species || []).map(s => `<span class="pill green species-chip">${s}</span>`).join('')}</div>
+        ${d.notes ? `<div class="notes">${d.notes}</div>` : ''}
+        ${d.conditions ? `<div style="margin-top:8px;font-size:11px;color:#8A7C6B;font-family:monospace">T почвы ${d.conditions.soilT}° · влажн. ${d.conditions.soilM} · Σ10дн ${d.conditions.rain10d} мм · T возд. ${d.conditions.tMax}/${d.conditions.tMin}°</div>` : '<div style="margin-top:6px"><button class="btn sm" onclick="window.app.syncHistoricalForDay(\'' + d.id + '\')">⟳ подтянуть условия</button></div>'}
+      </div>
+      <div class="right">
+        <span class="quantity-badge ${d.quantity || 'some'}">${qLabels[d.quantity] || 'средне'}</span>
+        <div style="margin-top:10px;display:flex;gap:4px;justify-content:flex-end">
+          <button class="btn sm" onclick="window.app.openDayForm('${d.id}')">Изм.</button>
+          <button class="btn sm danger" onclick="window.app.deleteDay('${d.id}')">×</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openDayForm(id) {
+  const existing = id ? state.mushroomDays.find(d => d.id === id) : null;
+  const today = new Date().toISOString().slice(0, 10);
+  openModal(`
+    <h3>${existing ? 'Изменить день' : 'Новый грибной день'}</h3>
+    <div class="form-row form-grid-2">
+      <div><label>Дата</label><input id="dayDate" type="date" value="${existing?.date || today}"></div>
+      <div><label>Локация</label><select id="dayLoc">
+        ${state.locations.map(l => `<option value="${l.id}" ${l.id === (existing?.locationId || state.activeLocationId) ? 'selected' : ''}>${l.name}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="form-row">
+      <label>Исход похода</label>
+      <div class="checkboxes" id="dayQty">
+        ${['none','little','some','many','jackpot'].map(q => {
+          const lbl = { none: '🚫 пусто', little: 'мало (<5)', some: 'средне (5–20)', many: 'много (20–50)', jackpot: 'джекпот (50+)' }[q];
+          return `<label class="${(existing?.quantity || 'some') === q ? 'checked' : ''}" data-q="${q}">${lbl}</label>`;
+        }).join('')}
+      </div>
+      <div class="form-hint">💡 «Пусто» — валидация модели. Если прогноз был зелёный, а грибов не было — это калибровка порогов.</div>
+    </div>
+    <div class="form-row"><label>Виды</label><div class="checkboxes" id="daySpecies">${speciesCheckboxesHtml('daySpecies', existing?.species || [])}</div></div>
+    <div class="form-row"><label>Заметки</label><textarea id="dayNotes" placeholder="Погода, фенология…">${existing?.notes || ''}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="window.app.closeModal()">Отмена</button>
+      <button class="btn primary" onclick="window.app.saveDay('${id || ''}')">${existing ? 'Сохранить' : 'Добавить'}</button>
+    </div>
+  `);
+  setTimeout(() => {
+    wireSpeciesCheckboxes('daySpecies');
+    document.querySelectorAll('#dayQty label').forEach(lab => {
+      lab.addEventListener('click', () => {
+        document.querySelectorAll('#dayQty label').forEach(x => x.classList.remove('checked'));
+        lab.classList.add('checked');
+      });
+    });
+  }, 0);
+}
+
+async function saveDay(id) {
+  const date = document.getElementById('dayDate').value;
+  const locationId = document.getElementById('dayLoc').value;
+  const species = Array.from(document.querySelectorAll('#daySpecies input:checked')).map(x => x.value);
+  const quantity = document.querySelector('#dayQty label.checked')?.dataset.q || 'some';
+  const notes = document.getElementById('dayNotes').value.trim();
+  if (!date || !locationId) { alert('Нужна дата и локация'); return; }
+  let newId = id;
+  if (id) {
+    const i = state.mushroomDays.findIndex(d => d.id === id);
+    if (i >= 0) {
+      // If date or location changed, invalidate cached conditions
+      if (state.mushroomDays[i].date !== date || state.mushroomDays[i].locationId !== locationId) {
+        delete state.mushroomDays[i].conditions;
+      }
+      state.mushroomDays[i] = { ...state.mushroomDays[i], date, locationId, species, quantity, notes };
+    }
+  } else {
+    newId = `day-${Date.now()}`;
+    state.mushroomDays.push({ id: newId, date, locationId, species, quantity, notes });
+  }
+  saveAndSync(state);
+  closeModal();
+  renderAll();
+  const dayId = newId;
+  const target = state.mushroomDays.find(d => d.id === dayId);
+  if (target && !target.conditions) {
+    await syncHistoricalForDay(dayId);
+  }
+}
+
+function deleteDay(id) {
+  if (!confirm('Удалить этот день?')) return;
+  state.mushroomDays = state.mushroomDays.filter(d => d.id !== id);
+  saveAndSync(state);
+  renderAll();
+}
+
+// =========================
+// Patterns
+// =========================
+function renderPatterns() {
+  const container = document.getElementById('patternsContent');
+  const allWithCond = state.mushroomDays.filter(d => d.conditions);
+  const successful = allWithCond.filter(d => d.quantity && d.quantity !== 'none');
+  const blanks = allWithCond.filter(d => d.quantity === 'none');
+
+  if (allWithCond.length === 0) {
+    container.innerHTML = `<div class="empty-state"><p>Пока нет дней с условиями.</p><p style="font-size:13px">Нажмите «⟳ подтянуть условия» на дне или кнопку «Подтянуть все условия» внизу.</p><button class="btn primary" onclick="window.app.syncAllHistorical()">⟳ Подтянуть все условия</button></div>`;
+    return;
+  }
+
+  const avg = (arr, key) => arr.length ? arr.reduce((s, d) => s + d.conditions[key], 0) / arr.length : null;
+  const sStats = successful.length ? { soilM: avg(successful, 'soilM'), soilT: avg(successful, 'soilT'), rain10d: avg(successful, 'rain10d'), tMax: avg(successful, 'tMax'), tMin: avg(successful, 'tMin') } : null;
+  const bStats = blanks.length ? { soilM: avg(blanks, 'soilM'), soilT: avg(blanks, 'soilT'), rain10d: avg(blanks, 'rain10d'), tMax: avg(blanks, 'tMax'), tMin: avg(blanks, 'tMin') } : null;
+
+  const validationRows = allWithCond.map(d => {
+    const predScore = scoreFromConditions(d.conditions);
+    const predStatus = statusFromScore(predScore);
+    const actualIsSuccess = d.quantity && d.quantity !== 'none';
+    const match = (predStatus === 'green' && actualIsSuccess) || (predStatus === 'red' && !actualIsSuccess) || (predStatus === 'yellow');
+    const loc = state.locations.find(l => l.id === d.locationId);
+    return { d, predScore, predStatus, actualIsSuccess, match, locName: loc?.name || '—' };
+  }).sort((a, b) => b.d.date.localeCompare(a.d.date));
+
+  const strict = validationRows.filter(r => r.predStatus !== 'yellow');
+  const correct = strict.filter(r => (r.predStatus === 'green' && r.actualIsSuccess) || (r.predStatus === 'red' && !r.actualIsSuccess));
+  const accuracy = strict.length ? Math.round((correct.length / strict.length) * 100) : null;
+
+  const activeLoc = state.locations.find(l => l.id === state.activeLocationId);
+  const activeW = activeLoc && state.weather[activeLoc.id];
+  const todayScore = activeW ? projectDayScore(activeW.hist, activeW.fc, 0) : null;
+
+  const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const byMonth = {};
+  successful.forEach(d => { const m = parseInt(d.date.slice(5, 7)); byMonth[m] = (byMonth[m] || 0) + 1; });
+  const bySpecies = {};
+  successful.forEach(d => (d.species || []).forEach(s => { bySpecies[s] = (bySpecies[s] || 0) + 1; }));
+
+  container.innerHTML = `
+    <div class="pattern-grid">
+      ${sStats ? `<div class="pattern-card">
+        <h4>🟢 Удачные (${successful.length}) — средние условия</h4>
+        <div class="pattern-stat"><span>Σ дождя / 10 дн</span><span class="value">${sStats.rain10d.toFixed(1)} мм</span></div>
+        <div class="pattern-stat"><span>Влажность почвы</span><span class="value">${sStats.soilM.toFixed(2)}</span></div>
+        <div class="pattern-stat"><span>T почвы</span><span class="value">${sStats.soilT.toFixed(1)} °C</span></div>
+        <div class="pattern-stat"><span>T день</span><span class="value">${sStats.tMax.toFixed(1)} °C</span></div>
+        <div class="pattern-stat"><span>T ночь</span><span class="value">${sStats.tMin.toFixed(1)} °C</span></div>
+      </div>` : ''}
+      ${bStats ? `<div class="pattern-card">
+        <h4>🚫 Пустые (${blanks.length}) — средние условия</h4>
+        <div class="pattern-stat"><span>Σ дождя / 10 дн</span><span class="value">${bStats.rain10d.toFixed(1)} мм</span></div>
+        <div class="pattern-stat"><span>Влажность почвы</span><span class="value">${bStats.soilM.toFixed(2)}</span></div>
+        <div class="pattern-stat"><span>T почвы</span><span class="value">${bStats.soilT.toFixed(1)} °C</span></div>
+        <div class="pattern-stat"><span>T день</span><span class="value">${bStats.tMax.toFixed(1)} °C</span></div>
+        <div class="pattern-stat"><span>T ночь</span><span class="value">${bStats.tMin.toFixed(1)} °C</span></div>
+      </div>` : ''}
+      ${todayScore && sStats ? `<div class="pattern-card">
+        <h4>Сегодня vs удачные</h4>
+        <div class="pattern-stat"><span>Σ дождя</span><span class="value">${todayScore.rain10d} мм ${compareSign(todayScore.rain10d, sStats.rain10d)}</span></div>
+        <div class="pattern-stat"><span>Влажн. почвы</span><span class="value">${todayScore.soilM} ${compareSign(todayScore.soilM, sStats.soilM)}</span></div>
+        <div class="pattern-stat"><span>T почвы</span><span class="value">${todayScore.soilT} ${compareSign(todayScore.soilT, sStats.soilT)}</span></div>
+      </div>` : ''}
+      ${Object.keys(byMonth).length ? `<div class="pattern-card"><h4>По месяцам</h4>${Object.entries(byMonth).sort((a, b) => a[0] - b[0]).map(([m, c]) => `<div class="pattern-stat"><span>${monthNames[m - 1]}</span><span class="value">${c}</span></div>`).join('')}</div>` : ''}
+      ${Object.keys(bySpecies).length ? `<div class="pattern-card"><h4>По видам</h4>${Object.entries(bySpecies).sort((a, b) => b[1] - a[1]).map(([s, c]) => `<div class="pattern-stat"><span>${s}</span><span class="value">${c}</span></div>`).join('')}</div>` : ''}
+    </div>
+
+    <h3 style="margin-top:28px">Валидация модели <span class="count">${validationRows.length} зап.${accuracy !== null ? ` · точность ${accuracy}%` : ''}</span></h3>
+    <div class="checklist" style="padding:0;overflow:hidden"><table class="validation-table">
+      <thead><tr><th>Дата</th><th>Локация</th><th>Прогноз</th><th>Факт</th><th>Условия</th><th>✓</th></tr></thead>
+      <tbody>${validationRows.map(r => {
+        const dt = new Date(r.d.date);
+        const dateStr = `${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}.${String(dt.getFullYear()).slice(2)}`;
+        const outcomeLbl = r.actualIsSuccess ? `<span class="quantity-badge ${r.d.quantity}">${{little:'мало',some:'средне',many:'много',jackpot:'джекпот'}[r.d.quantity]}</span>` : `<span class="quantity-badge none">пусто</span>`;
+        return `<tr>
+          <td>${dateStr}</td>
+          <td style="font-size:12px">${r.locName}</td>
+          <td><span class="score-pill ${r.predStatus}">${r.predScore}</span></td>
+          <td>${outcomeLbl}</td>
+          <td style="font-size:11px;font-family:monospace;color:#6B5F52">${r.d.conditions.rain10d}мм · ${r.d.conditions.soilM} · ${r.d.conditions.soilT}°</td>
+          <td style="text-align:center"><span class="match-icon ${r.match ? 'match-ok' : 'match-off'}">${r.match ? '✓' : '✗'}</span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+  `;
+}
+
+function compareSign(a, b) {
+  const diff = ((a - b) / b) * 100;
+  if (Math.abs(diff) < 10) return '<span style="color:#4A7C3A;font-size:11px">≈</span>';
+  if (diff > 0) return `<span style="color:#B88A2C;font-size:11px">+${diff.toFixed(0)}%</span>`;
+  return `<span style="color:#A04A3A;font-size:11px">${diff.toFixed(0)}%</span>`;
+}
+
+// =========================
+// Settings modal (Gist, password, export/import)
+// =========================
+function openSettings() {
+  const s = getSettings();
+  openModal(`
+    <h3>Настройки</h3>
+    <div class="form-row">
+      <label>GitHub Personal Access Token (scope: gist)</label>
+      <input id="setToken" type="password" value="${s.token || ''}" placeholder="ghp_...">
+      <div class="form-hint">Создать: github.com/settings/tokens → Fine-grained → Access: только Gists → Permissions: Gists (R/W). Токен хранится локально и не покидает устройство (кроме api.github.com).</div>
+    </div>
+    <div class="form-row">
+      <label>Gist ID (создаётся автоматически или вставьте существующий)</label>
+      <input id="setGistId" value="${s.gistId || ''}" placeholder="abc123def456...">
+    </div>
+    <div style="display:flex;gap:8px;margin:14px 0">
+      <button class="btn" onclick="window.app.saveSettingsAndCreateGist()">💾 Сохранить и создать Gist</button>
+      <button class="btn" onclick="window.app.pullFromGist()">⬇ Подтянуть из Gist</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #E6DECC;margin:20px 0">
+    <h4 style="margin:0 0 10px">Экспорт/импорт</h4>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn" onclick="window.app.exportJson()">📋 Скопировать все данные</button>
+      <button class="btn" onclick="window.app.openImportModal()">📥 Импорт из JSON</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #E6DECC;margin:20px 0">
+    <button class="btn danger" onclick="window.app.doLogout()">🔒 Выйти</button>
+    <div class="modal-actions"><button class="btn primary" onclick="window.app.closeModal()">Закрыть</button></div>
+  `);
+}
+
+async function saveSettingsAndCreateGist() {
+  const token = document.getElementById('setToken').value.trim();
+  let gistId = document.getElementById('setGistId').value.trim();
+  if (!token) { alert('Нужен токен'); return; }
+  try {
+    if (!gistId) {
+      gistId = await createGist(token, state);
+      showToast('Gist создан: ' + gistId);
+    }
+    saveSettings({ token, gistId });
+    showToast('Настройки сохранены — автосинк включён');
+    closeModal();
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+async function pullFromGist() {
+  const token = document.getElementById('setToken').value.trim();
+  const gistId = document.getElementById('setGistId').value.trim();
+  if (!token || !gistId) { alert('Нужны токен и Gist ID'); return; }
+  try {
+    const remote = await pullGist(token, gistId);
+    if (remote && confirm('Перезаписать локальные данные данными из Gist?')) {
+      state = remote;
+      saveAndSync(state);
+      saveSettings({ token, gistId });
+      closeModal();
+      renderAll();
+      showToast('Данные подтянуты из Gist');
+    }
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+function exportJson() {
+  const text = JSON.stringify(state, null, 2);
+  navigator.clipboard.writeText(text).then(() => showToast('Скопировано')).catch(() => {
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Скопировано');
+  });
+}
+
+function openImportModal() {
+  openModal(`
+    <h3>Импорт из JSON</h3>
+    <div class="form-row"><label>Вставьте JSON</label><textarea class="sync-box" id="importBox"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="window.app.closeModal()">Отмена</button>
+      <button class="btn primary" onclick="window.app.doImport()">Импортировать</button>
+    </div>
+  `);
+}
+
+function doImport() {
+  try {
+    const data = JSON.parse(document.getElementById('importBox').value);
+    if (!data.locations) throw new Error('Нет поля locations');
+    state = data;
+    saveAndSync(state);
+    closeModal();
+    renderAll();
+    showToast('Импортировано');
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+function doLogout() {
+  if (!confirm('Выйти и удалить сохранённый пароль с этого устройства?')) return;
+  logout();
+}
+
+// =========================
+// Modal, toast, tabs
+// =========================
+function openModal(html) {
+  document.getElementById('modalContent').innerHTML = html;
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'locations') renderLocations();
+  if (name === 'days') renderDays();
+  if (name === 'patterns') renderPatterns();
+}
+
+function attachEventHandlers() {
+  document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+  document.getElementById('locationSelector').addEventListener('change', e => { state.activeLocationId = e.target.value; saveAndSync(state); renderDashboard(); });
+  document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+  window.addEventListener('gist-synced', () => showSyncStatus('ok'));
+  window.addEventListener('gist-error', e => showSyncStatus('err', e.detail));
+}
+
+function showSyncStatus(status, msg) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  if (status === 'ok') { el.textContent = `☁ Синк: ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`; el.style.color = '#4A7C3A'; }
+  else { el.textContent = `⚠ ${msg || 'ошибка синка'}`; el.style.color = '#B45441'; }
+}
+
+function renderAll() {
+  document.getElementById('dataDate').textContent = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  document.getElementById('locCount').textContent = `${state.locations.length} лок · ${state.mushroomDays.length} дн`;
+  renderDashboard();
+  renderLocations();
+  renderDays();
+  renderPatterns();
+}
+
+// Expose for inline onclick= handlers
+window.app = {
+  setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope,
+  openDayForm, saveDay, deleteDay, syncHistoricalForDay,
+  syncAllHistorical, syncAllWeather,
+  addCustomSpeciesFromInput, removeCustomSpecies,
+  openSettings, saveSettingsAndCreateGist, pullFromGist,
+  exportJson, openImportModal, doImport, doLogout,
+  closeModal
+};
+
+// Boot
+init();

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#B45441">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Грибной светофор</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="brand">
+      <h1>🍄 Грибной светофор</h1>
+      <div class="subtitle">Персональный помощник по тихой охоте</div>
+    </div>
+    <div class="meta">
+      <div>Данные на <strong id="dataDate">—</strong></div>
+      <div><span id="locCount">—</span></div>
+      <div class="meta-actions">
+        <span id="syncStatus" style="font-size:11px;color:#8A7C6B"></span>
+        <button class="btn ghost" onclick="window.app.openSettings()">⚙</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="dashboard">Светофор</button>
+    <button class="tab-btn" data-tab="locations">Локации</button>
+    <button class="tab-btn" data-tab="days">Грибные дни</button>
+    <button class="tab-btn" data-tab="patterns">Паттерны</button>
+  </nav>
+
+  <main>
+    <section class="tab-panel active" id="tab-dashboard">
+      <div class="location-bar">
+        <div><label>Локация</label><select id="locationSelector"></select></div>
+        <div class="loc-info" id="locationInfo"></div>
+      </div>
+      <div class="verdict" id="heroVerdict">
+        <div class="verdict-dot" id="verdictDot">●</div>
+        <div class="verdict-text">
+          <h2 id="verdictTitle">Загрузка…</h2>
+          <p id="verdictBody"></p>
+        </div>
+      </div>
+      <div class="factors" id="factorCards"></div>
+      <h3>Прогноз на 10 дней</h3>
+      <div class="forecast" id="forecastGrid"></div>
+      <div class="legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#4A7C3A"></span>Ехать</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#D29A3C"></span>Можно, средне</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#B45441"></span>Рано/поздно</div>
+      </div>
+      <h3>Последние 30 дней</h3>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <h3>Чек-лист</h3>
+      <div class="checklist" id="checklist"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-locations">
+      <div class="section-head">
+        <h3>Мои локации <span class="count" id="locationsCount"></span></h3>
+        <button class="btn primary" onclick="window.app.openLocationForm()">+ Добавить</button>
+      </div>
+      <div id="locationsList"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-days">
+      <div class="section-head">
+        <h3>Грибные дни <span class="count" id="daysCount"></span></h3>
+        <div style="display:flex;gap:6px">
+          <button class="btn" onclick="window.app.syncAllHistorical()">⟳ Подтянуть все условия</button>
+          <button class="btn primary" onclick="window.app.openDayForm()">+ Добавить</button>
+        </div>
+      </div>
+      <div id="daysList"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-patterns">
+      <h3>Паттерны ваших походов</h3>
+      <div id="patternsContent"></div>
+    </section>
+  </main>
+
+  <div style="margin-top:32px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+    <button class="btn" onclick="window.app.syncAllWeather()">⟳ Погода</button>
+    <button class="btn" onclick="window.app.openSettings()">⚙ Настройки</button>
+  </div>
+
+  <footer>
+    <div>Данные из <a href="https://open-meteo.com">open-meteo.com</a> и <a href="https://openstreetmap.org">OpenStreetMap</a> · Все расчёты в браузере, без сервера</div>
+  </footer>
+</div>
+
+<div class="modal-overlay" id="modal"><div class="modal" id="modalContent"></div></div>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="js/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="cap" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#D06555"/>
+      <stop offset="60%" stop-color="#B45441"/>
+      <stop offset="100%" stop-color="#8A3E30"/>
+    </radialGradient>
+    <linearGradient id="stem" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FAF2DC"/>
+      <stop offset="100%" stop-color="#E6D4A8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#FAF6EC"/>
+  <!-- mushroom cap -->
+  <path d="M 96 240 Q 96 112 256 112 Q 416 112 416 240 Q 416 272 384 272 L 128 272 Q 96 272 96 240 Z" fill="url(#cap)"/>
+  <!-- spots -->
+  <circle cx="170" cy="200" r="18" fill="#FAF2DC" opacity="0.85"/>
+  <circle cx="256" cy="170" r="22" fill="#FAF2DC" opacity="0.85"/>
+  <circle cx="342" cy="205" r="16" fill="#FAF2DC" opacity="0.85"/>
+  <circle cx="305" cy="240" r="12" fill="#FAF2DC" opacity="0.75"/>
+  <circle cx="200" cy="245" r="10" fill="#FAF2DC" opacity="0.75"/>
+  <!-- stem -->
+  <path d="M 200 272 L 200 420 Q 200 440 220 440 L 292 440 Q 312 440 312 420 L 312 272 Z" fill="url(#stem)"/>
+  <ellipse cx="256" cy="272" rx="56" ry="10" fill="#D4C090" opacity="0.6"/>
+</svg>
