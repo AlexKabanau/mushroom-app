@@ -29,7 +29,8 @@ export async function fetchWeather(lat, lon) {
     dates: archive.daily.time,
     rain: archive.daily.precipitation_sum,
     soilM: archive.daily.soil_moisture_7_to_28cm_mean,
-    soilT: archive.daily.soil_temperature_7_to_28cm_mean
+    soilT: archive.daily.soil_temperature_7_to_28cm_mean,
+    tMin: archive.daily.temperature_2m_min   // нужно для определения заморозков
   };
 
   // Forecast returns past_days=1 + 14 forecast days = 15 items. We want today onwards (10 days).

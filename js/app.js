@@ -5,7 +5,7 @@ import { loadLocal, saveAndSync, pullAndMerge } from './storage.js';
 import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
 import { fetchWeather, fetchHistoricalConditions } from './weather.js';
 import { fetchBiotope } from './osm.js';
-import { scoreFromConditions, statusFromScore, projectDayScore } from './scoring.js';
+import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores } from './scoring.js';
 
 let state = null;
 let chartInstance = null;
@@ -209,6 +209,9 @@ function renderDashboard() {
   }
 
   const todayScore = projectDayScore(w.hist, w.fc, 0);
+  const todaySpeciesScores = loc.species?.length
+    ? projectSpeciesScores(w.hist, w.fc, 0, loc.species)
+    : [];
   const nextDays = Array.from({ length: Math.min(10, w.fc.dates.length) }, (_, i) => projectDayScore(w.hist, w.fc, i));
   const greenAhead = nextDays.filter(d => d.status === 'green').length;
 
@@ -218,19 +221,27 @@ function renderDashboard() {
   const dayNames = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
   const bestLabel = `${dayNames[bestDate.getDay()]} ${bestDate.getDate()}.${String(bestDate.getMonth() + 1).padStart(2, '0')}`;
 
+  // Best species today (if any configured for location)
+  const bestSpecies = todaySpeciesScores[0] || null;
+  const displayScore = bestSpecies ? bestSpecies.score : todayScore.score;
+  const displayStatus = bestSpecies ? bestSpecies.status : todayScore.status;
+  const displaySpeciesName = bestSpecies ? bestSpecies.species : null;
+
   let title, body;
-  if (todayScore.status === 'green') {
+  if (displayStatus === 'green') {
+    const speciesNote = displaySpeciesName ? ` · <em>${displaySpeciesName}${bestSpecies.isPeak ? ' 🌟 пиковый месяц' : ''}</em>` : '';
     title = `Ехать. ${greenAhead} зелёных дня впереди`;
-    body = `Все факторы соблюдены. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя за 10 дн — ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C, влажность ${todayScore.soilM}.`;
-  } else if (todayScore.status === 'yellow') {
-    title = 'Можно, но средне';
+    body = `Все факторы соблюдены${speciesNote}. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя за 10 дн — ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
+  } else if (displayStatus === 'yellow') {
+    const speciesNote = displaySpeciesName ? ` · ${displaySpeciesName}` : '';
+    title = `Можно, но средне${speciesNote}`;
     body = `Условия пограничные. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
   } else {
     title = 'Пока не стоит';
-    body = `Score сегодня ${todayScore.score}. Лучший день впереди: <strong>${bestLabel}</strong> (score ${bestScore}).`;
+    body = `Score сегодня ${displayScore}. Лучший день впереди: <strong>${bestLabel}</strong> (score ${bestScore}).`;
   }
-  document.getElementById('heroVerdict').className = `verdict ${todayScore.status}`;
-  document.getElementById('verdictDot').textContent = todayScore.status === 'green' ? '▲' : todayScore.status === 'yellow' ? '●' : '✕';
+  document.getElementById('heroVerdict').className = `verdict ${displayStatus}`;
+  document.getElementById('verdictDot').textContent = displayStatus === 'green' ? '▲' : displayStatus === 'yellow' ? '●' : '✕';
   document.getElementById('verdictTitle').textContent = title;
   document.getElementById('verdictBody').innerHTML = body;
 
@@ -241,12 +252,35 @@ function renderDashboard() {
   const sumClass = (todayScore.rain10d >= S.rain10d.ok[0] && todayScore.rain10d <= S.rain10d.ok[1]) ? 'ok' : (todayScore.rain10d >= S.rain10d.fair[0] && todayScore.rain10d <= S.rain10d.fair[1]) ? 'warn' : 'bad';
   const triggered = todayScore.rain10d > 10 && todayScore.soilT < 14;
 
+  const frostToday = todayScore.frostInLast7Days;
   document.getElementById('factorCards').innerHTML = `
     <div class="card"><div class="card-label">Осадки / 10 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 15–40 мм</div></div>
     <div class="card"><div class="card-label">Влажность почвы</div><div class="card-value status-${smClass}">${todayScore.soilM.toFixed(2)}</div><div class="card-note">оптимум 0,25–0,40</div></div>
     <div class="card"><div class="card-label">Темп. почвы</div><div class="card-value status-${stClass}">${todayScore.soilT} °C</div><div class="card-note">окно 8–14 °C</div></div>
-    <div class="card"><div class="card-label">Холодный толчок</div><div class="card-value status-${triggered ? 'ok' : 'warn'}">${triggered ? 'Да' : '—'}</div><div class="card-note">по условиям</div></div>
+    <div class="card"><div class="card-label">Заморозок</div><div class="card-value status-${frostToday ? 'ok' : 'warn'}">${frostToday ? '❄ Был' : '—'}</div><div class="card-note">триггер опят</div></div>
   `;
+
+  // Species breakdown
+  const speciesEl = document.getElementById('speciesBreakdown');
+  if (speciesEl) {
+    if (todaySpeciesScores.length === 0) {
+      speciesEl.style.display = 'none';
+    } else {
+      speciesEl.style.display = '';
+      speciesEl.innerHTML = `<h3 style="margin-top:0;margin-bottom:12px">Виды сегодня</h3>` +
+        todaySpeciesScores.map(s => {
+          const cfg = CONFIG.speciesConfig?.[s.species];
+          const lagNote = cfg?.lagDays ? `<span class="sb-lag">ждать ~${cfg.lagDays} дн от дождя</span>` : '';
+          const peakBadge = s.isPeak ? `<span class="sb-peak">пик</span>` : '';
+          return `<div class="sb-row">
+            <span class="sb-name">${s.species}${peakBadge}</span>
+            <div class="sb-bar"><div class="sb-fill ${s.status}" style="width:${s.score}%"></div></div>
+            <span class="score-pill ${s.status} sb-score">${s.score}</span>
+            ${lagNote}
+          </div>`;
+        }).join('');
+    }
+  }
 
   // Forecast grid
   const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];

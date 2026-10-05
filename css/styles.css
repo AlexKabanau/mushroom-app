@@ -160,6 +160,50 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .empty-state { background: white; border: 1px dashed #E6DECC; border-radius: 8px; padding: 40px 20px; text-align: center; color: #6B5F52; }
 .empty-state p { margin: 0 0 12px; }
 
+/* Species breakdown on dashboard */
+.species-breakdown-wrap { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 18px 20px; margin-bottom: 24px; }
+.sb-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #F2EBDA; }
+.sb-row:last-child { border: none; }
+.sb-name { width: 150px; flex-shrink: 0; font-size: 13px; font-weight: 500; }
+.sb-bar { flex: 1; height: 8px; border-radius: 4px; background: #F2EBDA; overflow: hidden; min-width: 60px; }
+.sb-fill { height: 100%; border-radius: 4px; }
+.sb-fill.green { background: #4A7C3A; }
+.sb-fill.yellow { background: #D29A3C; }
+.sb-fill.red { background: #B45441; }
+.sb-score { min-width: 36px; text-align: center; flex-shrink: 0; }
+.sb-lag { font-size: 11px; color: #8A7C6B; flex-shrink: 0; }
+.sb-peak { display: inline-block; margin-left: 5px; font-size: 10px; background: #D29A3C; color: white; padding: 1px 5px; border-radius: 8px; vertical-align: middle; font-weight: 600; }
+@media (max-width: 600px) { .sb-lag { display: none; } .sb-name { width: 110px; } }
+
+/* Score preview in form */
+.score-preview-box { border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid; transition: all 200ms; }
+.score-preview-box.loading { background: #F2EBDA; border-color: #E6DECC; color: #8A7C6B; font-size: 13px; }
+.score-preview-box.err { background: #F6E3DE; border-color: #D9A99A; color: #A04A3A; font-size: 13px; }
+.score-preview-box.green { background: #EDF4E4; border-color: #B5CDA0; }
+.score-preview-box.yellow { background: #FBF3DF; border-color: #E2CA8E; }
+.score-preview-box.red { background: #F6E3DE; border-color: #D9A99A; }
+.score-preview-title { font-size: 14px; font-weight: 600; }
+.score-preview-sub { font-size: 11px; color: #6B5F52; margin-top: 4px; font-family: monospace; }
+.score-preview-verdict { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
+.score-preview-verdict.ok { background: rgba(74, 124, 58, 0.12); color: #2A5A1C; }
+.score-preview-verdict.off { background: rgba(180, 84, 65, 0.12); color: #A04A3A; }
+.score-preview-verdict.neutral { background: #F2EBDA; color: #8A7C6B; }
+
+/* Score badge in day cards */
+.day-card-score { display: flex; align-items: center; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+.verdict-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.verdict-badge.ok { background: #DAE8CC; color: #2A5A1C; }
+.verdict-badge.off { background: #F6E3DE; color: #A04A3A; }
+.verdict-badge.neutral { background: #FBF3DF; color: #8A6A1C; }
+
+/* Accuracy direction block in Patterns */
+.accuracy-card { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 18px; margin-bottom: 14px; }
+.accuracy-card h4 { margin: 0 0 12px; font-family: Georgia, serif; font-weight: 500; font-size: 16px; }
+.accuracy-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.accuracy-bar { flex: 1; height: 8px; border-radius: 4px; background: #F2EBDA; overflow: hidden; }
+.accuracy-fill { height: 100%; border-radius: 4px; transition: width 400ms; }
+.accuracy-note { margin-top: 10px; font-size: 12px; color: #6B5F52; background: #FBF3DF; border-radius: 6px; padding: 8px 10px; border: 1px solid #E2CA8E; }
+
 footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid #E6DECC; font-size: 11px; color: #8A7C6B; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
 footer a { color: #4A7C3A; }
 
