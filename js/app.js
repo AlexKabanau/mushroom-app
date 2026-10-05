@@ -9,6 +9,7 @@ import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList
 
 let state = null;
 let chartInstance = null;
+let radarChartInstance = null;
 
 // =========================
 // INIT
@@ -173,6 +174,175 @@ function removeCustomSpecies(name, containerId) {
 }
 
 // =========================
+// Radar chart helpers
+// =========================
+
+/** Оценка одного фактора (0–100): 100=ok, 55=fair, 15=за пределами */
+function factorScore(val, ok, fair) {
+  if (val == null) return 0;
+  if (val >= ok[0] && val <= ok[1]) return 100;
+  if (val >= fair[0] && val <= fair[1]) return 55;
+  return 15;
+}
+function tMinFactorScore(val, okMin, fairMin) {
+  if (val == null) return 0;
+  if (val >= okMin) return 100;
+  if (val >= fairMin) return 55;
+  return 15;
+}
+
+/** Per-factor radar array [rain10d, soilM, soilT, tMax, tMin] (0–100 each) */
+function conditionsToRadar(c, speciesKey) {
+  const S = (speciesKey && CONFIG.speciesConfig?.[speciesKey]?.scoring) ? CONFIG.speciesConfig[speciesKey].scoring : CONFIG.scoring;
+  return [
+    factorScore(c.rain10d, S.rain10d.ok, S.rain10d.fair),
+    factorScore(c.soilM,   S.soilM.ok,   S.soilM.fair),
+    factorScore(c.soilT,   S.soilT.ok,   S.soilT.fair),
+    factorScore(c.tMax,    S.tMax.ok,     S.tMax.fair),
+    tMinFactorScore(c.tMin, S.tMin.ok, S.tMin.fair)
+  ];
+}
+
+/** Средние условия из лучших дней (many/jackpot) для указанного вида или всех */
+function getPersonalIdeal(speciesKey) {
+  const best = state.mushroomDays.filter(d =>
+    d.conditions &&
+    (d.quantity === 'many' || d.quantity === 'jackpot') &&
+    (!speciesKey || (d.species || []).includes(speciesKey))
+  );
+  if (best.length === 0) return null;
+  const avg = k => best.reduce((s, d) => s + (d.conditions[k] || 0), 0) / best.length;
+  return {
+    rain10d: parseFloat(avg('rain10d').toFixed(1)),
+    soilM:   parseFloat(avg('soilM').toFixed(3)),
+    soilT:   parseFloat(avg('soilT').toFixed(1)),
+    tMax:    parseFloat(avg('tMax').toFixed(1)),
+    tMin:    parseFloat(avg('tMin').toFixed(1)),
+    count: best.length
+  };
+}
+
+/** Центр ok-диапазонов — теоретический идеал */
+function getModelIdeal(speciesKey) {
+  const S = (speciesKey && CONFIG.speciesConfig?.[speciesKey]?.scoring) ? CONFIG.speciesConfig[speciesKey].scoring : CONFIG.scoring;
+  return {
+    rain10d: (S.rain10d.ok[0] + S.rain10d.ok[1]) / 2,
+    soilM:   (S.soilM.ok[0]   + S.soilM.ok[1])   / 2,
+    soilT:   (S.soilT.ok[0]   + S.soilT.ok[1])   / 2,
+    tMax:    (S.tMax.ok[0]    + S.tMax.ok[1])     / 2,
+    tMin:    S.tMin.ok + 3
+  };
+}
+
+function renderRadarChart(w, loc) {
+  const radarSection = document.getElementById('radarSection');
+  if (!w || !radarSection) return;
+
+  const speciesKey = loc.species?.[0] || null; // первый вид локации как основной
+
+  // Сегодняшние условия из прогноза
+  const today = {
+    rain10d: projectDayScore(w.hist, w.fc, 0)?.rain10d,
+    soilM:   projectDayScore(w.hist, w.fc, 0)?.soilM,
+    soilT:   projectDayScore(w.hist, w.fc, 0)?.soilT,
+    tMax:    w.fc.tMax[0],
+    tMin:    w.fc.tMin[0]
+  };
+
+  const personalIdeal = getPersonalIdeal(speciesKey);
+  const modelIdeal = getModelIdeal(speciesKey);
+
+  const labels = ['Σ дождя\n10 дн', 'Влажн.\nпочвы', 'Т почвы', 'Т воздуха\nдень', 'Ночная\nтемп.'];
+  const todayData    = conditionsToRadar(today,       speciesKey);
+  const modelData    = conditionsToRadar(modelIdeal,  speciesKey);
+  const datasets = [
+    {
+      label: 'Модельный идеал',
+      data: modelData,
+      borderColor: 'rgba(180,84,65,0.5)',
+      backgroundColor: 'rgba(180,84,65,0.07)',
+      borderWidth: 1.5,
+      borderDash: [5, 4],
+      pointRadius: 3,
+      pointBackgroundColor: 'rgba(180,84,65,0.5)'
+    },
+    {
+      label: 'Сегодня',
+      data: todayData,
+      borderColor: '#4A7C3A',
+      backgroundColor: 'rgba(74,124,58,0.12)',
+      borderWidth: 2.5,
+      pointRadius: 4,
+      pointBackgroundColor: '#4A7C3A'
+    }
+  ];
+
+  let metaHtml = `<div class="radar-meta-card">`;
+  if (personalIdeal) {
+    datasets.splice(1, 0, {
+      label: `Мой лучший день`,
+      data: conditionsToRadar(personalIdeal, speciesKey),
+      borderColor: '#D29A3C',
+      backgroundColor: 'rgba(210,154,60,0.10)',
+      borderWidth: 2,
+      borderDash: [3, 2],
+      pointRadius: 3,
+      pointBackgroundColor: '#D29A3C'
+    });
+    metaHtml += `<h4>Мой лучший день (${personalIdeal.count} пох.)</h4>
+      <div class="radar-personal-item"><span>Σ дождя</span><span><b>${personalIdeal.rain10d} мм</b></span></div>
+      <div class="radar-personal-item"><span>Влажн. почвы</span><span><b>${personalIdeal.soilM}</b></span></div>
+      <div class="radar-personal-item"><span>Т почвы</span><span><b>${personalIdeal.soilT} °C</b></span></div>
+      <div class="radar-personal-item"><span>Т воздуха</span><span><b>${personalIdeal.tMax} °C</b></span></div>
+      <div class="radar-personal-item"><span>Ночная Т</span><span><b>${personalIdeal.tMin} °C</b></span></div>`;
+  } else {
+    metaHtml += `<h4>Персональный идеал</h4>
+      <p style="font-size:12px;color:#8A7C6B;margin:0">Добавь несколько удачных дней (много/джекпот) — появится твой личный идеал.</p>`;
+  }
+  metaHtml += `<div style="margin-top:12px;border-top:1px solid #F2EBDA;padding-top:10px">`;
+  datasets.forEach(ds => {
+    const dash = ds.borderDash ? 'border-top: 2px dashed' : 'border-top: 2.5px solid';
+    metaHtml += `<div class="radar-legend-row">
+      <span style="display:inline-block;width:22px;height:0;${dash} ${ds.borderColor};flex-shrink:0"></span>
+      <span>${ds.label}</span>
+    </div>`;
+  });
+  metaHtml += `</div></div>`;
+
+  document.getElementById('radarMeta').innerHTML = metaHtml;
+
+  if (radarChartInstance) radarChartInstance.destroy();
+  const ctx = document.getElementById('radarChart').getContext('2d');
+  radarChartInstance = new Chart(ctx, {
+    type: 'radar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        r: {
+          min: 0, max: 100,
+          ticks: { stepSize: 25, font: { size: 10 }, color: '#8A7C6B', backdropColor: 'transparent' },
+          grid: { color: '#E6DECC' },
+          angleLines: { color: '#E6DECC' },
+          pointLabels: { font: { size: 11 }, color: '#4A3F35' }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.raw}%`
+          }
+        }
+      }
+    }
+  });
+
+  radarSection.style.display = '';
+}
+
+// =========================
 // Dashboard
 // =========================
 function renderDashboard() {
@@ -318,6 +488,9 @@ function renderDashboard() {
       plugins: { legend: { position: 'top', align: 'end' } }
     }
   });
+
+  // Radar chart
+  renderRadarChart(w, loc);
 
   // Checklist
   const checks = [
@@ -783,6 +956,15 @@ function compareSign(a, b) {
 // =========================
 function openSettings() {
   const s = getSettings();
+  const mobileStatus = s.gistId
+    ? (CONFIG.gistId
+        ? `<div class="form-hint" style="color:#4A7C3A;margin-top:6px">✓ Мобильный доступ настроен (config.js уже содержит Gist ID)</div>`
+        : `<div class="form-hint" style="background:#FFF7E6;border:1px solid #D29A3C;border-radius:6px;padding:8px 10px;margin-top:6px">
+            📱 <b>Мобильный доступ без токена:</b> скопируйте ID в <code>config.js</code> → <code>gistId: "..."</code> и задеплойте.<br>
+            <code style="font-size:11px;word-break:break-all">${s.gistId}</code>
+            <button class="btn ghost" style="padding:2px 8px;margin-left:6px;font-size:11px" onclick="navigator.clipboard.writeText('${s.gistId}').then(()=>window.app.showToast('ID скопирован!'))">📋</button>
+          </div>`)
+    : '';
   openModal(`
     <h3>Настройки</h3>
     <div class="form-row">
@@ -793,6 +975,8 @@ function openSettings() {
     <div class="form-row">
       <label>Gist ID (создаётся автоматически или вставьте существующий)</label>
       <input id="setGistId" value="${s.gistId || ''}" placeholder="abc123def456...">
+      ${mobileStatus}
+      <div id="newGistHint" style="display:none"></div>
     </div>
     <div style="display:flex;gap:8px;margin:14px 0">
       <button class="btn" onclick="window.app.saveSettingsAndCreateGist()">💾 Сохранить и создать Gist</button>
@@ -817,11 +1001,25 @@ async function saveSettingsAndCreateGist() {
   try {
     if (!gistId) {
       gistId = await createGist(token, state);
-      showToast('Gist создан: ' + gistId);
+      // Update input and show prominent copy hint for mobile setup
+      document.getElementById('setGistId').value = gistId;
+      const hint = document.getElementById('newGistHint');
+      if (hint) {
+        hint.style.display = 'block';
+        hint.innerHTML = `
+          <div style="background:#EDF7ED;border:1px solid #4A7C3A;border-radius:6px;padding:10px;margin-top:8px">
+            <b>✅ Gist создан!</b><br>
+            <code style="font-size:11px;word-break:break-all">${gistId}</code>
+            <button class="btn ghost" style="padding:2px 8px;margin-left:6px;font-size:11px"
+              onclick="navigator.clipboard.writeText('${gistId}').then(()=>window.app.showToast('ID скопирован!'))">📋</button><br>
+            <small style="color:#555">📱 Для телефона без токена: вставьте ID в <code>config.js</code> → <code>gistId: "${gistId}"</code> и задеплойте снова.</small>
+          </div>`;
+      }
     }
     saveSettings({ token, gistId });
     showToast('Настройки сохранены — автосинк включён');
-    closeModal();
+    // Don't close if newly created — let user copy the Gist ID
+    if (document.getElementById('newGistHint')?.style.display === 'none') closeModal();
   } catch (e) {
     alert('Ошибка: ' + e.message);
   }
@@ -943,7 +1141,7 @@ window.app = {
   addCustomSpeciesFromInput, removeCustomSpecies,
   openSettings, saveSettingsAndCreateGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
-  closeModal
+  closeModal, showToast
 };
 
 // Boot

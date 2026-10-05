@@ -160,6 +160,16 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .empty-state { background: white; border: 1px dashed #E6DECC; border-radius: 8px; padding: 40px 20px; text-align: center; color: #6B5F52; }
 .empty-state p { margin: 0 0 12px; }
 
+/* Radar chart */
+.radar-wrap { display: grid; grid-template-columns: 1fr 240px; gap: 16px; align-items: start; }
+.radar-meta-card { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 14px 16px; }
+.radar-meta-card h4 { margin: 0 0 8px; font-family: Georgia, serif; font-weight: 500; font-size: 15px; }
+.radar-legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
+.radar-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.radar-personal-item { font-size: 12px; padding: 3px 0; border-bottom: 1px solid #F2EBDA; display: flex; justify-content: space-between; }
+.radar-personal-item:last-child { border: none; }
+@media (max-width: 700px) { .radar-wrap { grid-template-columns: 1fr; } }
+
 /* Species breakdown on dashboard */
 .species-breakdown-wrap { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 18px 20px; margin-bottom: 24px; }
 .sb-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #F2EBDA; }
