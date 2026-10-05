@@ -163,28 +163,88 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
 }
 
 /**
+ * Build conditions object for a trigger day that falls in HISTORICAL data.
+ * histOffset = number of days before the first forecast day (fc.dates[0]).
+ * histOffset=1 → yesterday, histOffset=7 → a week ago, etc.
+ */
+function conditionsFromHist(hist, histOffset) {
+  const hIdx = hist.dates.length - histOffset;
+  if (hIdx < 0 || hIdx >= hist.dates.length) return null;
+  const rain10d = hist.rain
+    .slice(Math.max(0, hIdx - 9), hIdx + 1)
+    .reduce((a, b) => a + (b || 0), 0);
+  const frostInLast7Days = hist.tMin
+    .slice(Math.max(0, hIdx - 6), hIdx + 1)
+    .some(t => t < 0);
+  return {
+    soilT: hist.soilT[hIdx],
+    soilM: hist.soilM[hIdx],
+    rain10d,
+    tMax: hist.tMax?.[hIdx] ?? ((hist.tMin[hIdx] ?? 0) + 8), // fallback if tMax absent
+    tMin: hist.tMin[hIdx],
+    rainToday: hist.rain[hIdx],
+    date: hist.dates[hIdx],
+    frostInLast7Days
+  };
+}
+
+/**
  * Project scores for a list of species on a given forecast day.
+ *
+ * KEY INSIGHT: mushrooms on day X were TRIGGERED by conditions on day X-lagDays.
+ * So we score the TRIGGER DAY, not the display day.
+ *
+ * triggerIdx = idx - lagDays
+ *   >= 0  → trigger is within forecast range → use projectDayScore
+ *   <  0  → trigger is in historical data   → use conditionsFromHist
+ *
  * Returns array sorted by score desc.
  */
 export function projectSpeciesScores(hist, fc, idx, speciesList) {
   if (!hist || !fc || !speciesList?.length) return [];
-  // Build shared conditions once
-  const base = projectDayScore(hist, fc, idx, null);
-  if (!base) return [];
 
-  const date = fc.dates?.[idx] || null;
-  const tMax = fc.tMax[idx];
-  const tMin = fc.tMin[idx];
-  const conditions = {
-    soilT: base.soilT,
-    soilM: base.soilM,
-    rain10d: base.rain10d,
-    tMax,
-    tMin,
-    rainToday: fc.rain[idx],
-    date,
-    frostInLast7Days: base.frostInLast7Days
-  };
+  return speciesList.map(sp => {
+    const cfg = CONFIG.speciesConfig?.[sp];
+    const lag = cfg?.lagDays ?? 7;
+    const triggerIdx = idx - lag; // which day's conditions drove today's crop
 
-  return scoreSpeciesList(conditions, speciesList);
+    let conditions;
+    if (triggerIdx >= 0) {
+      // Trigger is within forecast window
+      const base = projectDayScore(hist, fc, triggerIdx, null);
+      if (!base) return null;
+      conditions = {
+        soilT: base.soilT,
+        soilM: base.soilM,
+        rain10d: base.rain10d,
+        tMax: fc.tMax[triggerIdx],
+        tMin: fc.tMin[triggerIdx],
+        rainToday: fc.rain[triggerIdx],
+        date: fc.dates?.[triggerIdx] || null,
+        frostInLast7Days: base.frostInLast7Days
+      };
+    } else {
+      // Trigger is in historical data
+      // fc starts from today; triggerIdx=-1 means yesterday (1 day before fc[0])
+      const histOffset = -triggerIdx; // days before fc[0] = days before today
+      conditions = conditionsFromHist(hist, histOffset);
+    }
+
+    if (!conditions) return null;
+
+    const score = scoreFromConditions(conditions, sp);
+    return {
+      species: sp,
+      emoji: cfg?.emoji || '🍄',
+      score,
+      status: statusFromScore(score),
+      lag,
+      note: cfg?.note ?? null,
+      isPeak: cfg?.peakMonths && conditions.date
+        ? cfg.peakMonths.includes(new Date(conditions.date).getMonth() + 1)
+        : false
+    };
+  })
+  .filter(Boolean)
+  .sort((a, b) => b.score - a.score);
 }

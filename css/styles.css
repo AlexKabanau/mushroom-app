@@ -58,6 +58,7 @@ h3 .count { font-size: 13px; color: #8A7C6B; margin-left: 8px; font-family: inhe
 .day-score { font-family: Georgia, serif; font-size: 20px; font-weight: 500; margin: 4px 0 2px; }
 .day-temp { font-size: 12px; color: #4A3F35; }
 .day-rain { font-size: 11px; color: #6B5F52; margin-top: 3px; }
+.day-species { font-size: 10px; color: #4A7C3A; margin-top: 4px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .legend { display: flex; gap: 18px; margin-top: 12px; font-size: 12px; color: #6B5F52; flex-wrap: wrap; }
 .legend-item { display: flex; align-items: center; gap: 6px; }

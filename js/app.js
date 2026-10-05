@@ -3,13 +3,34 @@ import { CONFIG } from './config.js';
 import { requireAuth, logout } from './auth.js';
 import { loadLocal, saveAndSync, pullAndMerge } from './storage.js';
 import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
-import { fetchWeather, fetchHistoricalConditions } from './weather.js';
+import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow } from './weather.js';
 import { fetchBiotope } from './osm.js';
 import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores } from './scoring.js';
 
 let state = null;
 let chartInstance = null;
 let radarChartInstance = null;
+
+/**
+ * Given a day's trip date and a trigger window (fetchTriggerWindow result),
+ * compute triggerConditions per species: conditions on the day that triggered
+ * the mushroom crop (tripDate - lagDays).
+ */
+function computeTriggerConditions(day, triggerWindow) {
+  const species = day.species || [];
+  const result = {};
+  for (const sp of species) {
+    const cfg = CONFIG.speciesConfig?.[sp];
+    if (!cfg) continue;
+    const lag = cfg.lagDays ?? 7;
+    const tripDate = new Date(day.date + 'T12:00:00');
+    tripDate.setDate(tripDate.getDate() - lag);
+    const triggerDate = tripDate.toISOString().slice(0, 10);
+    const cond = triggerWindow[triggerDate];
+    if (cond) result[sp] = { ...cond, triggerDate };
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
 
 // =========================
 // INIT
@@ -69,11 +90,16 @@ async function syncHistoricalForDay(dayId) {
   if (!day) return;
   const loc = state.locations.find(l => l.id === day.locationId);
   if (!loc) return;
-  showToast('Подтягиваю исторические условия…');
+  showToast('Подтягиваю условия…');
   try {
-    const c = await fetchHistoricalConditions(loc.lat, loc.lon, day.date);
+    const [c, triggerWindow] = await Promise.all([
+      fetchHistoricalConditions(loc.lat, loc.lon, day.date),
+      fetchTriggerWindow(loc.lat, loc.lon, day.date)
+    ]);
     if (c) {
       day.conditions = c;
+      const trigger = computeTriggerConditions(day, triggerWindow);
+      if (trigger) day.triggerConditions = trigger;
       saveAndSync(state);
       renderDays();
       renderPatterns();
@@ -87,16 +113,26 @@ async function syncHistoricalForDay(dayId) {
 }
 
 async function syncAllHistorical() {
-  const needs = state.mushroomDays.filter(d => !d.conditions);
+  // Process days that lack conditions OR have conditions but no triggerConditions yet
+  const needsConditions = state.mushroomDays.filter(d => !d.conditions);
+  const needsTrigger = state.mushroomDays.filter(
+    d => d.conditions && !d.triggerConditions && d.species?.length
+  );
+  const needs = [...needsConditions, ...needsTrigger];
   if (needs.length === 0) { showToast('Все дни уже с условиями'); return; }
   showToast(`Загружаю условия для ${needs.length} ${needs.length === 1 ? 'дня' : 'дней'}…`);
   for (const d of needs) {
     const loc = state.locations.find(l => l.id === d.locationId);
     if (!loc) continue;
     try {
-      const c = await fetchHistoricalConditions(loc.lat, loc.lon, d.date);
+      const [c, triggerWindow] = await Promise.all([
+        d.conditions ? Promise.resolve(null) : fetchHistoricalConditions(loc.lat, loc.lon, d.date),
+        fetchTriggerWindow(loc.lat, loc.lon, d.date)
+      ]);
       if (c) d.conditions = c;
-      await new Promise(r => setTimeout(r, 150));
+      const trigger = computeTriggerConditions(d, triggerWindow);
+      if (trigger) d.triggerConditions = trigger;
+      await new Promise(r => setTimeout(r, 200));
     } catch (e) { console.warn(e); }
   }
   saveAndSync(state);
@@ -382,7 +418,19 @@ function renderDashboard() {
   const todaySpeciesScores = loc.species?.length
     ? projectSpeciesScores(w.hist, w.fc, 0, loc.species)
     : [];
-  const nextDays = Array.from({ length: Math.min(10, w.fc.dates.length) }, (_, i) => projectDayScore(w.hist, w.fc, i));
+
+  // Forecast: per day, use best lag-shifted species score (biological) when species configured,
+  // otherwise fall back to general conditions score (no lag).
+  const fcLen = Math.min(10, w.fc.dates.length);
+  const nextDays = Array.from({ length: fcLen }, (_, i) => {
+    const general = projectDayScore(w.hist, w.fc, i);
+    if (!loc.species?.length) return general;
+    const shifted = projectSpeciesScores(w.hist, w.fc, i, loc.species);
+    const best = shifted[0]; // sorted by score desc
+    if (!best) return general;
+    return { ...general, score: best.score, status: best.status, bestSpecies: best.species };
+  });
+
   const greenAhead = nextDays.filter(d => d.status === 'green').length;
 
   let bestIdx = 0, bestScore = -1;
@@ -457,12 +505,14 @@ function renderDashboard() {
   document.getElementById('forecastGrid').innerHTML = w.fc.dates.slice(0, 10).map((d, i) => {
     const r = nextDays[i];
     const dt = new Date(d);
+    const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
     return `<div class="day ${r.status}${i === 0 ? ' today' : ''}">
       <div class="day-weekday">${weekdays[dt.getDay()]}</div>
       <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сегодня' : ''}</div>
       <div class="day-score">${r.score}</div>
       <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
       <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
+      ${speciesLabel}
     </div>`;
   }).join('');
 
@@ -675,24 +725,57 @@ function renderDays() {
     const dateStr = dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
     const isBlank = d.quantity === 'none';
 
-    // Score badge + verdict (only if conditions available)
+    // Score badge + verdict
+    // Priority: trigger conditions per species (biological) → same-day conditions (fallback)
     let scoreBadgeHtml = '';
-    if (d.conditions) {
-      const predScore = scoreFromConditions(d.conditions);
-      const predStatus = statusFromScore(predScore);
-      const isSuccess = !isBlank;
-      const emoji = { green: '🟢', yellow: '🟡', red: '🔴' }[predStatus];
-      let verdictClass = 'neutral', verdictIcon = '~', verdictTip = 'пограничный';
-      if (predStatus !== 'yellow') {
-        const modelRight = (predStatus === 'green' && isSuccess) || (predStatus === 'red' && !isSuccess);
-        verdictClass = modelRight ? 'ok' : 'off';
-        verdictIcon = modelRight ? '✓' : '✗';
-        verdictTip = modelRight ? 'модель права' : 'модель ошиблась';
+    if (d.conditions || d.triggerConditions) {
+      let predScore, predStatus;
+      let triggerRows = '';
+
+      if (d.triggerConditions && d.species?.length) {
+        // Score each species from its own trigger day conditions
+        const spScores = d.species
+          .map(sp => {
+            const tc = d.triggerConditions[sp];
+            if (!tc) return null;
+            const score = scoreFromConditions(tc, sp);
+            const st = statusFromScore(score);
+            return { sp, score, st, triggerDate: tc.triggerDate };
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.score - a.score);
+
+        if (spScores.length) {
+          predScore  = spScores[0].score;
+          predStatus = spScores[0].st;
+          triggerRows = `<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">` +
+            spScores.map(s =>
+              `<span style="font-size:10px;color:#6B5F52">${s.sp}:&nbsp;<span class="score-pill ${s.st}" style="font-size:9px;padding:1px 5px">${s.score}</span>&nbsp;<span style="color:#A89880">← ${s.triggerDate}</span></span>`
+            ).join('') + `</div>`;
+        }
       }
-      scoreBadgeHtml = `<div class="day-card-score">
-        <span class="score-pill ${predStatus}">${emoji} ${predScore}</span>
-        <span class="verdict-badge ${verdictClass}">${verdictIcon} ${verdictTip}</span>
-      </div>`;
+
+      // Fallback to same-day conditions if no trigger data
+      if (predScore === undefined && d.conditions) {
+        predScore  = scoreFromConditions(d.conditions);
+        predStatus = statusFromScore(predScore);
+      }
+
+      if (predScore !== undefined) {
+        const isSuccess = !isBlank;
+        const emoji = { green: '🟢', yellow: '🟡', red: '🔴' }[predStatus];
+        let verdictClass = 'neutral', verdictIcon = '~', verdictTip = 'пограничный';
+        if (predStatus !== 'yellow') {
+          const modelRight = (predStatus === 'green' && isSuccess) || (predStatus === 'red' && !isSuccess);
+          verdictClass = modelRight ? 'ok' : 'off';
+          verdictIcon = modelRight ? '✓' : '✗';
+          verdictTip = modelRight ? 'модель права' : 'модель ошиблась';
+        }
+        scoreBadgeHtml = `<div class="day-card-score">
+          <span class="score-pill ${predStatus}">${emoji} ${predScore}</span>
+          <span class="verdict-badge ${verdictClass}">${verdictIcon} ${verdictTip}</span>
+        </div>${triggerRows}`;
+      }
     }
 
     return `<div class="day-card ${isBlank ? 'blank' : ''}">
@@ -826,7 +909,15 @@ function renderPatterns() {
   const bStats = blanks.length ? { soilM: avg(blanks, 'soilM'), soilT: avg(blanks, 'soilT'), rain10d: avg(blanks, 'rain10d'), tMax: avg(blanks, 'tMax'), tMin: avg(blanks, 'tMin') } : null;
 
   const validationRows = allWithCond.map(d => {
-    const predScore = scoreFromConditions(d.conditions);
+    // Use trigger conditions per species when available (more accurate)
+    let predScore;
+    if (d.triggerConditions && d.species?.length) {
+      const spScores = d.species
+        .map(sp => { const tc = d.triggerConditions[sp]; return tc ? scoreFromConditions(tc, sp) : null; })
+        .filter(s => s !== null);
+      if (spScores.length) predScore = Math.max(...spScores);
+    }
+    if (predScore === undefined) predScore = scoreFromConditions(d.conditions);
     const predStatus = statusFromScore(predScore);
     const actualIsSuccess = d.quantity && d.quantity !== 'none';
     const match = (predStatus === 'green' && actualIsSuccess) || (predStatus === 'red' && !actualIsSuccess) || (predStatus === 'yellow');

@@ -30,7 +30,8 @@ export async function fetchWeather(lat, lon) {
     rain: archive.daily.precipitation_sum,
     soilM: archive.daily.soil_moisture_7_to_28cm_mean,
     soilT: archive.daily.soil_temperature_7_to_28cm_mean,
-    tMin: archive.daily.temperature_2m_min   // нужно для определения заморозков
+    tMin: archive.daily.temperature_2m_min,  // нужно для определения заморозков
+    tMax: archive.daily.temperature_2m_max   // нужно для lag-shifted scoring
   };
 
   // Forecast returns past_days=1 + 14 forecast days = 15 items. We want today onwards (10 days).
@@ -51,6 +52,49 @@ export async function fetchWeather(lat, lon) {
     elevation: forecast.elevation,
     asOf: todayStr
   };
+}
+
+/**
+ * Fetch a window of daily conditions BEFORE a trip date.
+ * Returns a map { "YYYY-MM-DD": { soilT, soilM, rain10d, tMax, tMin, frostInLast7Days } }
+ * covering the last maxLagDays before the trip — used to extract trigger conditions per species.
+ * One API call per trip, not per species.
+ */
+export async function fetchTriggerWindow(lat, lon, tripDate, maxLagDays = 16) {
+  const trip = new Date(tripDate + 'T12:00:00');
+  const end = new Date(trip);
+  end.setDate(end.getDate() - 1);                  // last possible trigger = day before trip
+  const start = new Date(trip);
+  start.setDate(start.getDate() - maxLagDays - 9); // +9 days for rolling rain10d accuracy
+
+  const url = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}` +
+    `&start_date=${dayStr(start)}&end_date=${dayStr(end)}` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,` +
+    `soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean` +
+    `&timezone=${encodeURIComponent(CONFIG.timezone)}`;
+
+  const data = await fetch(url).then(r => r.json());
+  const d = data.daily;
+  if (!d?.time?.length) return {};
+
+  const dayMap = {};
+  for (let i = 0; i < d.time.length; i++) {
+    const rain10d = d.precipitation_sum
+      .slice(Math.max(0, i - 9), i + 1)
+      .reduce((a, b) => a + (b || 0), 0);
+    const frostInLast7Days = d.temperature_2m_min
+      .slice(Math.max(0, i - 6), i + 1)
+      .some(t => t != null && t < 0);
+    dayMap[d.time[i]] = {
+      soilT:  parseFloat((d.soil_temperature_7_to_28cm_mean[i] ?? 0).toFixed(1)),
+      soilM:  parseFloat((d.soil_moisture_7_to_28cm_mean[i]  ?? 0).toFixed(3)),
+      rain10d: parseFloat(rain10d.toFixed(1)),
+      tMax:   parseFloat((d.temperature_2m_max[i] ?? 0).toFixed(1)),
+      tMin:   parseFloat((d.temperature_2m_min[i] ?? 0).toFixed(1)),
+      frostInLast7Days
+    };
+  }
+  return dayMap;
 }
 
 /**
