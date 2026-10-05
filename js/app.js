@@ -10,6 +10,7 @@ import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList
 let state = null;
 let chartInstance = null;
 let radarChartInstance = null;
+let forecastDays = []; // cached for modal access on card click
 
 /**
  * Given a day's trip date and a trigger window (fetchTriggerWindow result),
@@ -496,6 +497,7 @@ function renderDashboard() {
              allSpecies: blended, hint };
   });
 
+  forecastDays = nextDays; // store for click-modal access
   const greenAhead = nextDays.filter(d => d.status === 'green').length;
 
   let bestIdx = 0, bestScore = -1;
@@ -581,22 +583,14 @@ function renderDashboard() {
   document.getElementById('forecastGrid').innerHTML = w.fc.dates.slice(0, 10).map((d, i) => {
     const r = nextDays[i];
     const dt = new Date(d);
-    const speciesRows = r.allSpecies?.length
-      ? `<div class="day-species-list">${r.allSpecies.map(s =>
-          `<div class="day-sp-row"><span class="day-sp-name">${s.species}</span><span class="score-pill ${s.status} day-sp-score">${s.score}</span></div>`
-        ).join('')}</div>`
-      : (r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '');
-    const hintBtn = r.hint
-      ? `<button class="day-hint-btn" onclick="event.stopPropagation();window.app.showDayHint(this)" data-hint="${r.hint.replace(/"/g, '&quot;')}">ℹ почему?</button>`
-      : '';
-    return `<div class="day ${r.status}${i === 0 ? ' today' : ''}">
+    const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
+    return `<div class="day ${r.status}${i === 0 ? ' today' : ''} day-clickable" onclick="window.app.showForecastModal(${i})">
       <div class="day-weekday">${weekdays[dt.getDay()]}</div>
-      <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сегодня' : ''}</div>
+      <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сег.' : ''}</div>
       <div class="day-score">${r.score}</div>
       <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
       <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
-      ${speciesRows}
-      ${hintBtn}
+      ${speciesLabel}
     </div>`;
   }).join('');
 
@@ -1298,14 +1292,45 @@ function showSyncStatus(status, msg) {
   else { el.textContent = `⚠ ${msg || 'ошибка синка'}`; el.style.color = '#B45441'; }
 }
 
-function showDayHint(btn) {
-  const text = btn?.dataset?.hint || '';
-  if (!text) return;
+function showForecastModal(idx) {
+  const r = forecastDays[idx];
+  if (!r) return;
+  const loc = state.locations.find(l => l.id === state.activeLocationId) || state.locations[0];
+  const w = loc && state.weather[loc.id];
+  if (!w) return;
+
+  const dt = new Date(w.fc.dates[idx]);
+  const wdays = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+  const dateStr = `${wdays[dt.getDay()]}, ${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')}`;
+  const dotColor = r.status === 'green' ? '#4A7C3A' : r.status === 'yellow' ? '#D29A3C' : '#B45441';
+  const dotIcon = r.status === 'green' ? '▲' : r.status === 'yellow' ? '●' : '✕';
+
+  const speciesHtml = r.allSpecies?.length
+    ? `<div style="margin:14px 0 0">${r.allSpecies.map(s => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F2EBDA">
+          <span style="font-size:13px;color:#4A3F35">${s.species}${s.isPeak ? ' 🌟' : ''}</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:11px;color:#A89880">↯ ${s.triggerScore}</span>
+            <span class="score-pill ${s.status}">${s.score}</span>
+          </div>
+        </div>`).join('')}</div>`
+    : '';
+
+  const hintHtml = r.hint
+    ? `<div style="background:#F7F3EB;border-radius:8px;padding:12px 14px;margin-top:14px;font-size:13px;line-height:1.8">${r.hint}</div>`
+    : '';
+
   openModal(`
-    <h3 style="margin-top:0;font-size:17px">Почему такой прогноз?</h3>
-    <p style="font-size:13px;color:#4A3F35;line-height:1.8;margin:0 0 16px">${text}</p>
-    <p style="font-size:12px;color:#8A7C6B;margin:0 0 16px">Финальный скор = √(триггер × здоровье волны). Триггер — был ли дождь нужной давности. Здоровье — почва, температура, мороз (без дождевого потолка — волна уже идёт).</p>
-    <div class="modal-actions"><button class="btn primary" onclick="window.app.closeModal()">OK</button></div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px">
+      <div style="width:50px;height:50px;border-radius:50%;background:${dotColor};display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;flex-shrink:0">${dotIcon} ${r.score}</div>
+      <div>
+        <div style="font-size:19px;font-family:Georgia,serif;font-weight:500">${dateStr}</div>
+        <div style="font-size:13px;color:#6B5F52">${w.fc.tMax[idx].toFixed(0)}° / ${w.fc.tMin[idx].toFixed(0)}° · 💧 ${w.fc.rain[idx]} мм · Tп ${r.soilT}°</div>
+      </div>
+    </div>
+    ${speciesHtml ? `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8A7C6B;margin-top:16px;margin-bottom:2px">Виды <span style="color:#A89880;font-weight:400;text-transform:none">↯ = скор триггера</span></div>${speciesHtml}` : ''}
+    ${hintHtml}
+    <div class="modal-actions"><button class="btn primary" onclick="window.app.closeModal()">Закрыть</button></div>
   `);
 }
 
@@ -1327,7 +1352,7 @@ window.app = {
   addCustomSpeciesFromInput, removeCustomSpecies,
   openSettings, saveSettingsAndCreateGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
-  closeModal, showToast, showDayHint
+  closeModal, showToast, showForecastModal
 };
 
 // Boot
