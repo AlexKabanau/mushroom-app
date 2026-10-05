@@ -32,6 +32,34 @@ function computeTriggerConditions(day, triggerWindow) {
   return Object.keys(result).length > 0 ? result : null;
 }
 
+/**
+ * Generate a contextual hint for a forecast day explaining WHY it has the score it does.
+ * triggerScore = how good were conditions lagDays ago (biological wave trigger)
+ * currentScore = how good are conditions right now (wave freshness / current state)
+ * The final score is √(trigger × current) — both matter.
+ */
+function buildForecastHint(triggerScore, currentScore, speciesName, lag) {
+  const tS = statusFromScore(triggerScore);
+  const cS = statusFromScore(currentScore);
+  const em = { green: '🟢', yellow: '🟡', red: '🔴' };
+  const header = `${em[tS]} Триггер (~${lag} дн назад): <b>${triggerScore}</b> &nbsp;·&nbsp; ${em[cS]} Сейчас: <b>${currentScore}</b>`;
+  let body;
+  if (tS === 'green' && cS === 'green') {
+    body = `Оба фактора отличные — ${speciesName} на пике. Хороший день для похода.`;
+  } else if (tS === 'green' && cS === 'yellow') {
+    body = `Волна ${speciesName} в разгаре, текущие условия пограничные. Грибы будут, без рекорда.`;
+  } else if (tS === 'green' && cS === 'red') {
+    body = `Волна ${speciesName} была запущена хорошим дождём ~${lag} дн назад, но сейчас засуха / холод — волна на спаде. Грибы ещё возможны, но уже не на пике.`;
+  } else if (tS === 'yellow' && (cS === 'green' || cS === 'yellow')) {
+    body = `Текущие условия неплохие, но триггер был средним. Возможна слабая волна ${speciesName}.`;
+  } else if (tS === 'red' && (cS === 'green' || cS === 'yellow')) {
+    body = `Текущие условия неплохие, но триггер слабый (~${lag} дн назад мало дождей) — ждём новой волны ${speciesName}.`;
+  } else {
+    body = `Ни триггер, ни текущие условия не оптимальны для ${speciesName}. Пока не стоит.`;
+  }
+  return `${header}<br><span style="color:#6B5F52">${body}</span>`;
+}
+
 // =========================
 // INIT
 // =========================
@@ -419,16 +447,22 @@ function renderDashboard() {
     ? projectSpeciesScores(w.hist, w.fc, 0, loc.species)
     : [];
 
-  // Forecast: per day, use best lag-shifted species score (biological) when species configured,
-  // otherwise fall back to general conditions score (no lag).
+  // Forecast: per day, blend lag-shifted trigger score with current conditions score.
+  // Final = √(triggerScore × currentScore) — both need to be good for a truly green day.
+  // If no species configured, fall back to general (no lag) score.
   const fcLen = Math.min(10, w.fc.dates.length);
   const nextDays = Array.from({ length: fcLen }, (_, i) => {
     const general = projectDayScore(w.hist, w.fc, i);
-    if (!loc.species?.length) return general;
+    if (!loc.species?.length) return { ...general, hint: null };
     const shifted = projectSpeciesScores(w.hist, w.fc, i, loc.species);
-    const best = shifted[0]; // sorted by score desc
-    if (!best) return general;
-    return { ...general, score: best.score, status: best.status, bestSpecies: best.species };
+    const best = shifted[0]; // best species by trigger score, sorted desc
+    if (!best) return { ...general, hint: null };
+    // Geometric mean of trigger quality and current conditions
+    const blendedScore = Math.round(Math.sqrt(best.score * general.score));
+    const status = statusFromScore(blendedScore);
+    const hint = buildForecastHint(best.score, general.score, best.species, best.lag);
+    return { ...general, score: blendedScore, status, bestSpecies: best.species,
+             triggerScore: best.score, currentScore: general.score, hint };
   });
 
   const greenAhead = nextDays.filter(d => d.status === 'green').length;
@@ -441,8 +475,11 @@ function renderDashboard() {
 
   // Best species today (if any configured for location)
   const bestSpecies = todaySpeciesScores[0] || null;
-  const displayScore = bestSpecies ? bestSpecies.score : todayScore.score;
-  const displayStatus = bestSpecies ? bestSpecies.status : todayScore.status;
+  // Apply same geometric mean blend as in the forecast grid
+  const displayScore = bestSpecies
+    ? Math.round(Math.sqrt(bestSpecies.score * todayScore.score))
+    : todayScore.score;
+  const displayStatus = statusFromScore(displayScore);
   const displaySpeciesName = bestSpecies ? bestSpecies.species : null;
 
   let title, body;
@@ -506,6 +543,9 @@ function renderDashboard() {
     const r = nextDays[i];
     const dt = new Date(d);
     const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
+    const hintBtn = r.hint
+      ? `<button class="day-hint-btn" onclick="event.stopPropagation();window.app.showDayHint(this)" data-hint="${r.hint.replace(/"/g, '&quot;')}">ℹ почему?</button>`
+      : '';
     return `<div class="day ${r.status}${i === 0 ? ' today' : ''}">
       <div class="day-weekday">${weekdays[dt.getDay()]}</div>
       <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сегодня' : ''}</div>
@@ -513,6 +553,7 @@ function renderDashboard() {
       <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
       <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
       ${speciesLabel}
+      ${hintBtn}
     </div>`;
   }).join('');
 
@@ -1214,6 +1255,17 @@ function showSyncStatus(status, msg) {
   else { el.textContent = `⚠ ${msg || 'ошибка синка'}`; el.style.color = '#B45441'; }
 }
 
+function showDayHint(btn) {
+  const text = btn?.dataset?.hint || '';
+  if (!text) return;
+  openModal(`
+    <h3 style="margin-top:0;font-size:17px">Почему такой прогноз?</h3>
+    <p style="font-size:13px;color:#4A3F35;line-height:1.8;margin:0 0 16px">${text}</p>
+    <p style="font-size:12px;color:#8A7C6B;margin:0 0 16px">Финальный скор = √(триггер × сейчас) — оба фактора должны быть хорошими для зелёного дня.</p>
+    <div class="modal-actions"><button class="btn primary" onclick="window.app.closeModal()">OK</button></div>
+  `);
+}
+
 function renderAll() {
   document.getElementById('dataDate').textContent = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
   document.getElementById('locCount').textContent = `${state.locations.length} лок · ${state.mushroomDays.length} дн`;
@@ -1232,7 +1284,7 @@ window.app = {
   addCustomSpeciesFromInput, removeCustomSpecies,
   openSettings, saveSettingsAndCreateGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
-  closeModal, showToast
+  closeModal, showToast, showDayHint
 };
 
 // Boot
