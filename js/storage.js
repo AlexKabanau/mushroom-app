@@ -32,12 +32,15 @@ export function saveLocal(state) {
 
 /**
  * Pull remote state from Gist and merge with local (last-write-wins by updatedAt).
+ * Works without a token if the Gist is public and CONFIG.gistId is set
+ * (mobile read-only access without re-entering the GitHub token).
  */
 export async function pullAndMerge(localState) {
-  const { token, gistId } = getSettings();
-  if (!token || !gistId) return localState;
+  const { token, gistId: storedGistId } = getSettings();
+  const gistId = storedGistId || CONFIG.gistId; // fallback to hardcoded ID for mobile
+  if (!gistId) return localState;               // no Gist configured at all → skip
   try {
-    const remote = await pullGist(token, gistId);
+    const remote = await pullGist(token || null, gistId); // token optional for public Gist
     if (!remote) return localState;
     const localTime = new Date(localState.updatedAt || 0).getTime();
     const remoteTime = new Date(remote.updatedAt || 0).getTime();

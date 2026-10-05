@@ -50,7 +50,22 @@ export function scoreFromConditions(c, speciesKey = null) {
   // Специальное правило: мороз → бонус для опёнка
   if (specCfg?.specialRule === 'frost' && c.frostInLast7Days) score += 15;
 
-  return Math.max(0, Math.min(100, score));
+  score = Math.max(0, Math.min(100, score));
+
+  // ======================================================
+  // Дождевой потолок: дождь — триггер плодоношения.
+  // Без свежих осадков мицелий не запускает новую волну
+  // даже если почва ещё влажная от прошлых дождей.
+  // Потолок пропорционален rain10d относительно минимума вида.
+  // ======================================================
+  const rainMin = S.rain10d.fair[0]; // минимальный порог для вида (напр. 10 мм)
+  if (c.rain10d < rainMin) {
+    const ratio = c.rain10d / rainMin;                    // 0.0 → 1.0
+    const cap = Math.round(28 + ratio * 42);              // 28 (0мм) → 70 (≥rainMin)
+    score = Math.min(score, cap);
+  }
+
+  return score;
 }
 
 export function statusFromScore(score) {

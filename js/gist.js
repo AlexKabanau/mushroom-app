@@ -1,4 +1,6 @@
-// GitHub Gist sync — stores app state in a private Gist
+// GitHub Gist sync — stores app state in a PUBLIC Gist
+// (data is readable by anyone who knows the Gist ID;
+//  password in the UI is the access gate, not the Gist visibility)
 import { CONFIG } from './config.js';
 
 const FILENAME = 'mushroom-config.json';
@@ -22,7 +24,7 @@ export async function createGist(token, initialData) {
     },
     body: JSON.stringify({
       description: 'Mushroom Traffic Light — personal foraging data',
-      public: false,
+      public: true,
       files: { [FILENAME]: { content: JSON.stringify(initialData, null, 2) } }
     })
   });
@@ -32,12 +34,9 @@ export async function createGist(token, initialData) {
 }
 
 export async function pullGist(token, gistId) {
-  const r = await fetch(`${CONFIG.endpoints.github}/gists/${gistId}`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json'
-    }
-  });
+  const headers = { 'Accept': 'application/vnd.github+json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const r = await fetch(`${CONFIG.endpoints.github}/gists/${gistId}`, { headers });
   if (!r.ok) throw new Error(`Gist pull failed: ${r.status}`);
   const gist = await r.json();
   const file = gist.files[FILENAME];
