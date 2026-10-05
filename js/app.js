@@ -33,29 +33,52 @@ function computeTriggerConditions(day, triggerWindow) {
 }
 
 /**
+ * Current-wave health score: soilM + soilT + temperature, NO rain gate.
+ * Rain gate belongs in the trigger (was there enough rain to START a wave?).
+ * This measures whether an already-running wave is still in good shape.
+ * Max raw = 75 pts (25+25+15+10), scaled to 0–100.
+ */
+function quickHealthScore(soilM, soilT, tMax, tMin, frostInLast7Days, speciesKey) {
+  const S = (speciesKey && CONFIG.speciesConfig?.[speciesKey]?.scoring)
+    ? CONFIG.speciesConfig[speciesKey].scoring
+    : CONFIG.scoring;
+  let s = 0;
+  if (soilT >= S.soilT.ok[0]   && soilT <= S.soilT.ok[1])   s += 25;
+  else if (soilT >= S.soilT.fair[0] && soilT <= S.soilT.fair[1]) s += 12;
+  if (soilM >= S.soilM.ok[0]   && soilM <= S.soilM.ok[1])   s += 25;
+  else if (soilM >= S.soilM.fair[0] && soilM <= S.soilM.fair[1]) s += 12;
+  if (tMax >= S.tMax.ok[0]     && tMax <= S.tMax.ok[1])     s += 15;
+  else if (tMax >= S.tMax.fair[0] && tMax <= S.tMax.fair[1]) s += 7;
+  if (tMin > S.tMin.ok)   s += 10;
+  else if (tMin > S.tMin.fair) s += 5;
+  if (frostInLast7Days) s = Math.round(s * 0.6); // frost stresses ongoing wave
+  return Math.min(100, Math.round(s * (100 / 75)));
+}
+
+/**
  * Generate a contextual hint for a forecast day explaining WHY it has the score it does.
  * triggerScore = how good were conditions lagDays ago (biological wave trigger)
  * currentScore = how good are conditions right now (wave freshness / current state)
  * The final score is √(trigger × current) — both matter.
  */
-function buildForecastHint(triggerScore, currentScore, speciesName, lag) {
+function buildForecastHint(triggerScore, healthScore, speciesName, lag) {
   const tS = statusFromScore(triggerScore);
-  const cS = statusFromScore(currentScore);
+  const hS = statusFromScore(healthScore);
   const em = { green: '🟢', yellow: '🟡', red: '🔴' };
-  const header = `${em[tS]} Триггер (~${lag} дн назад): <b>${triggerScore}</b> &nbsp;·&nbsp; ${em[cS]} Сейчас: <b>${currentScore}</b>`;
+  const header = `${em[tS]} Триггер (дождь ~${lag} дн назад): <b>${triggerScore}</b> &nbsp;·&nbsp; ${em[hS]} Здоровье волны: <b>${healthScore}</b>`;
   let body;
-  if (tS === 'green' && cS === 'green') {
-    body = `Оба фактора отличные — ${speciesName} на пике. Хороший день для похода.`;
-  } else if (tS === 'green' && cS === 'yellow') {
-    body = `Волна ${speciesName} в разгаре, текущие условия пограничные. Грибы будут, без рекорда.`;
-  } else if (tS === 'green' && cS === 'red') {
-    body = `Волна ${speciesName} была запущена хорошим дождём ~${lag} дн назад, но сейчас засуха / холод — волна на спаде. Грибы ещё возможны, но уже не на пике.`;
-  } else if (tS === 'yellow' && (cS === 'green' || cS === 'yellow')) {
-    body = `Текущие условия неплохие, но триггер был средним. Возможна слабая волна ${speciesName}.`;
-  } else if (tS === 'red' && (cS === 'green' || cS === 'yellow')) {
-    body = `Текущие условия неплохие, но триггер слабый (~${lag} дн назад мало дождей) — ждём новой волны ${speciesName}.`;
+  if (tS === 'green' && hS === 'green') {
+    body = `Дождь был когда нужно, почва и тепло — в норме. ${speciesName} на пике.`;
+  } else if (tS === 'green' && hS === 'yellow') {
+    body = `Волна ${speciesName} в разгаре, условия пограничные (почва или тепло чуть ниже нормы). Грибы будут.`;
+  } else if (tS === 'green' && hS === 'red') {
+    body = `Волна ${speciesName} была запущена, но сейчас почва пересохла или мороз — волна на спаде. Грибы ещё возможны.`;
+  } else if (tS === 'yellow' && (hS === 'green' || hS === 'yellow')) {
+    body = `Условия неплохие, но триггер был слабым (~${lag} дн назад мало дождей). Слабая волна ${speciesName}.`;
+  } else if (tS === 'red' && (hS === 'green' || hS === 'yellow')) {
+    body = `Почва и тепло в норме, но триггера не было (~${lag} дн назад без дождей) — ждём осадков для волны ${speciesName}.`;
   } else {
-    body = `Ни триггер, ни текущие условия не оптимальны для ${speciesName}. Пока не стоит.`;
+    body = `Слабый триггер и неблагоприятные условия. Пока не стоит.`;
   }
   return `${header}<br><span style="color:#6B5F52">${body}</span>`;
 }
@@ -457,12 +480,20 @@ function renderDashboard() {
     const shifted = projectSpeciesScores(w.hist, w.fc, i, loc.species);
     const best = shifted[0]; // best species by trigger score, sorted desc
     if (!best) return { ...general, hint: null };
-    // Geometric mean of trigger quality and current conditions
-    const blendedScore = Math.round(Math.sqrt(best.score * general.score));
+    // Health score: soilM + soilT + temperature, NO rain gate.
+    // Rain gate belongs in the trigger; ongoing wave health depends on soil + warmth only.
+    const health = quickHealthScore(
+      general.soilM, general.soilT,
+      w.fc.tMax[i], w.fc.tMin[i],
+      general.frostInLast7Days,
+      best.species
+    );
+    // Geometric mean: both trigger quality AND wave health matter
+    const blendedScore = Math.round(Math.sqrt(best.score * health));
     const status = statusFromScore(blendedScore);
-    const hint = buildForecastHint(best.score, general.score, best.species, best.lag);
+    const hint = buildForecastHint(best.score, health, best.species, best.lag);
     return { ...general, score: blendedScore, status, bestSpecies: best.species,
-             triggerScore: best.score, currentScore: general.score, hint };
+             triggerScore: best.score, healthScore: health, hint };
   });
 
   const greenAhead = nextDays.filter(d => d.status === 'green').length;
@@ -475,9 +506,17 @@ function renderDashboard() {
 
   // Best species today (if any configured for location)
   const bestSpecies = todaySpeciesScores[0] || null;
-  // Apply same geometric mean blend as in the forecast grid
+  // Apply same blend: trigger × health (soilM+soilT+temp, no rain gate)
+  const todayHealth = bestSpecies
+    ? quickHealthScore(
+        todayScore.soilM, todayScore.soilT,
+        w.fc.tMax[0], w.fc.tMin[0],
+        todayScore.frostInLast7Days,
+        bestSpecies.species
+      )
+    : null;
   const displayScore = bestSpecies
-    ? Math.round(Math.sqrt(bestSpecies.score * todayScore.score))
+    ? Math.round(Math.sqrt(bestSpecies.score * todayHealth))
     : todayScore.score;
   const displayStatus = statusFromScore(displayScore);
   const displaySpeciesName = bestSpecies ? bestSpecies.species : null;
@@ -1261,7 +1300,7 @@ function showDayHint(btn) {
   openModal(`
     <h3 style="margin-top:0;font-size:17px">Почему такой прогноз?</h3>
     <p style="font-size:13px;color:#4A3F35;line-height:1.8;margin:0 0 16px">${text}</p>
-    <p style="font-size:12px;color:#8A7C6B;margin:0 0 16px">Финальный скор = √(триггер × сейчас) — оба фактора должны быть хорошими для зелёного дня.</p>
+    <p style="font-size:12px;color:#8A7C6B;margin:0 0 16px">Финальный скор = √(триггер × здоровье волны). Триггер — был ли дождь нужной давности. Здоровье — почва, температура, мороз (без дождевого потолка — волна уже идёт).</p>
     <div class="modal-actions"><button class="btn primary" onclick="window.app.closeModal()">OK</button></div>
   `);
 }
