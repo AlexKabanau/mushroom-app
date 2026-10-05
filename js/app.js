@@ -132,8 +132,9 @@ function wireSpeciesCheckboxes(containerId) {
     lab.dataset.wired = '1';
     lab.addEventListener('click', (e) => {
       if (e.target.classList.contains('remove-custom')) return;
+      e.preventDefault(); // prevent label from double-toggling the hidden checkbox
       const cb = lab.querySelector('input[type="checkbox"]');
-      if (e.target.tagName !== 'INPUT') cb.checked = !cb.checked;
+      cb.checked = !cb.checked;
       lab.classList.toggle('checked', cb.checked);
     });
   });
@@ -407,6 +408,49 @@ function deleteLocation(id) {
 }
 
 // =========================
+// Day score preview (in form, before saving)
+// =========================
+async function previewDayScore(date, locId) {
+  const box = document.getElementById('dayScorePreview');
+  if (!box) return;
+  if (!date || !locId) { box.style.display = 'none'; return; }
+  const loc = state.locations.find(l => l.id === locId);
+  if (!loc) return;
+  box.style.display = '';
+  box.className = 'score-preview-box loading';
+  box.innerHTML = `Считаю score за ${date}…`;
+  try {
+    const c = await fetchHistoricalConditions(loc.lat, loc.lon, date);
+    if (!c) {
+      box.className = 'score-preview-box err';
+      box.innerHTML = 'Нет архивных данных за эту дату (доступно с 1940 по вчера)';
+      return;
+    }
+    const score = scoreFromConditions(c);
+    const status = statusFromScore(score);
+    const emoji = { green: '🟢', yellow: '🟡', red: '🔴' }[status];
+    const label = { green: 'зелёный — ехать', yellow: 'жёлтый — пограничный', red: 'красный — не стоило' }[status];
+    const selectedQty = document.querySelector('#dayQty label.checked')?.dataset.q;
+    let verdictHtml = '';
+    if (selectedQty) {
+      const isSuccess = selectedQty !== 'none';
+      const modelRight = (status === 'green' && isSuccess) || (status === 'red' && !isSuccess);
+      const modelWrong = (status === 'green' && !isSuccess) || (status === 'red' && isSuccess);
+      if (modelRight) verdictHtml = `<div class="score-preview-verdict ok">✓ Модель права — условия соответствуют исходу</div>`;
+      else if (modelWrong) verdictHtml = `<div class="score-preview-verdict off">✗ Модель ошиблась — стоит пересмотреть пороги</div>`;
+      else verdictHtml = `<div class="score-preview-verdict neutral">~ Жёлтый — пограничный результат</div>`;
+    }
+    box.className = `score-preview-box ${status}`;
+    box.innerHTML = `<div class="score-preview-title">${emoji} ${score} баллов · ${label}</div>
+      <div class="score-preview-sub">T почвы ${c.soilT}° · влажн. ${c.soilM} · Σ10дн ${c.rain10d} мм · T возд. ${c.tMax}/${c.tMin}°</div>
+      ${verdictHtml}`;
+  } catch(e) {
+    box.className = 'score-preview-box err';
+    box.innerHTML = 'Ошибка при загрузке условий: ' + e.message;
+  }
+}
+
+// =========================
 // Mushroom Days
 // =========================
 function renderDays() {
@@ -423,6 +467,27 @@ function renderDays() {
     const dt = new Date(d.date);
     const dateStr = dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
     const isBlank = d.quantity === 'none';
+
+    // Score badge + verdict (only if conditions available)
+    let scoreBadgeHtml = '';
+    if (d.conditions) {
+      const predScore = scoreFromConditions(d.conditions);
+      const predStatus = statusFromScore(predScore);
+      const isSuccess = !isBlank;
+      const emoji = { green: '🟢', yellow: '🟡', red: '🔴' }[predStatus];
+      let verdictClass = 'neutral', verdictIcon = '~', verdictTip = 'пограничный';
+      if (predStatus !== 'yellow') {
+        const modelRight = (predStatus === 'green' && isSuccess) || (predStatus === 'red' && !isSuccess);
+        verdictClass = modelRight ? 'ok' : 'off';
+        verdictIcon = modelRight ? '✓' : '✗';
+        verdictTip = modelRight ? 'модель права' : 'модель ошиблась';
+      }
+      scoreBadgeHtml = `<div class="day-card-score">
+        <span class="score-pill ${predStatus}">${emoji} ${predScore}</span>
+        <span class="verdict-badge ${verdictClass}">${verdictIcon} ${verdictTip}</span>
+      </div>`;
+    }
+
     return `<div class="day-card ${isBlank ? 'blank' : ''}">
       <div>
         <div class="date">${dateStr}${isBlank ? ' <span style="color:#B45441;font-size:12px">· пустой поход</span>' : ''}</div>
@@ -431,6 +496,7 @@ function renderDays() {
         <div style="margin-top:${isBlank ? '2' : '6'}px">${(d.species || []).map(s => `<span class="pill green species-chip">${s}</span>`).join('')}</div>
         ${d.notes ? `<div class="notes">${d.notes}</div>` : ''}
         ${d.conditions ? `<div style="margin-top:8px;font-size:11px;color:#8A7C6B;font-family:monospace">T почвы ${d.conditions.soilT}° · влажн. ${d.conditions.soilM} · Σ10дн ${d.conditions.rain10d} мм · T возд. ${d.conditions.tMax}/${d.conditions.tMin}°</div>` : '<div style="margin-top:6px"><button class="btn sm" onclick="window.app.syncHistoricalForDay(\'' + d.id + '\')">⟳ подтянуть условия</button></div>'}
+        ${scoreBadgeHtml}
       </div>
       <div class="right">
         <span class="quantity-badge ${d.quantity || 'some'}">${qLabels[d.quantity] || 'средне'}</span>
@@ -446,14 +512,16 @@ function renderDays() {
 function openDayForm(id) {
   const existing = id ? state.mushroomDays.find(d => d.id === id) : null;
   const today = new Date().toISOString().slice(0, 10);
+  const defaultLocId = existing?.locationId || state.activeLocationId || state.locations[0]?.id || '';
   openModal(`
     <h3>${existing ? 'Изменить день' : 'Новый грибной день'}</h3>
     <div class="form-row form-grid-2">
       <div><label>Дата</label><input id="dayDate" type="date" value="${existing?.date || today}"></div>
       <div><label>Локация</label><select id="dayLoc">
-        ${state.locations.map(l => `<option value="${l.id}" ${l.id === (existing?.locationId || state.activeLocationId) ? 'selected' : ''}>${l.name}</option>`).join('')}
+        ${state.locations.map(l => `<option value="${l.id}" ${l.id === defaultLocId ? 'selected' : ''}>${l.name}</option>`).join('')}
       </select></div>
     </div>
+    <div id="dayScorePreview" style="display:none"></div>
     <div class="form-row">
       <label>Исход похода</label>
       <div class="checkboxes" id="dayQty">
@@ -462,7 +530,7 @@ function openDayForm(id) {
           return `<label class="${(existing?.quantity || 'some') === q ? 'checked' : ''}" data-q="${q}">${lbl}</label>`;
         }).join('')}
       </div>
-      <div class="form-hint">💡 «Пусто» — валидация модели. Если прогноз был зелёный, а грибов не было — это калибровка порогов.</div>
+      <div class="form-hint">💡 Модель покажет свой прогноз за эту дату — сравни с тем, что нашёл.</div>
     </div>
     <div class="form-row"><label>Виды</label><div class="checkboxes" id="daySpecies">${speciesCheckboxesHtml('daySpecies', existing?.species || [])}</div></div>
     <div class="form-row"><label>Заметки</label><textarea id="dayNotes" placeholder="Погода, фенология…">${existing?.notes || ''}</textarea></div>
@@ -473,12 +541,24 @@ function openDayForm(id) {
   `);
   setTimeout(() => {
     wireSpeciesCheckboxes('daySpecies');
+    const dateInput = document.getElementById('dayDate');
+    const locSelect = document.getElementById('dayLoc');
+    const refreshPreview = () => previewDayScore(dateInput.value, locSelect.value);
+    dateInput.addEventListener('change', refreshPreview);
+    locSelect.addEventListener('change', refreshPreview);
     document.querySelectorAll('#dayQty label').forEach(lab => {
       lab.addEventListener('click', () => {
         document.querySelectorAll('#dayQty label').forEach(x => x.classList.remove('checked'));
         lab.classList.add('checked');
+        // Re-render verdict part if preview already loaded
+        const box = document.getElementById('dayScorePreview');
+        if (box && box.style.display !== 'none' && !box.classList.contains('loading') && !box.classList.contains('err')) {
+          refreshPreview();
+        }
       });
     });
+    // Auto-show preview on open
+    refreshPreview();
   }, 0);
 }
 
@@ -589,6 +669,8 @@ function renderPatterns() {
       ${Object.keys(bySpecies).length ? `<div class="pattern-card"><h4>По видам</h4>${Object.entries(bySpecies).sort((a, b) => b[1] - a[1]).map(([s, c]) => `<div class="pattern-stat"><span>${s}</span><span class="value">${c}</span></div>`).join('')}</div>` : ''}
     </div>
 
+    ${buildAccuracyBlock(validationRows, accuracy)}
+
     <h3 style="margin-top:28px">Валидация модели <span class="count">${validationRows.length} зап.${accuracy !== null ? ` · точность ${accuracy}%` : ''}</span></h3>
     <div class="checklist" style="padding:0;overflow:hidden"><table class="validation-table">
       <thead><tr><th>Дата</th><th>Локация</th><th>Прогноз</th><th>Факт</th><th>Условия</th><th>✓</th></tr></thead>
@@ -607,6 +689,52 @@ function renderPatterns() {
       }).join('')}</tbody>
     </table></div>
   `;
+}
+
+function buildAccuracyBlock(rows, accuracy) {
+  const strict = rows.filter(r => r.predStatus !== 'yellow');
+  if (strict.length < 2) return `<div class="accuracy-card"><h4>Точность модели</h4><p style="font-size:13px;color:#8A7C6B;margin:0">Недостаточно данных. Добавьте больше дней (в т.ч. пустых), чтобы увидеть статистику.</p></div>`;
+
+  const overestimates = strict.filter(r => r.predStatus === 'green' && !r.actualIsSuccess);
+  const underestimates = strict.filter(r => r.predStatus === 'red' && r.actualIsSuccess);
+  const correct = strict.filter(r => r.match);
+  const total = strict.length;
+  const pct = Math.round((correct.length / total) * 100);
+  const overPct = Math.round((overestimates.length / total) * 100);
+  const underPct = Math.round((underestimates.length / total) * 100);
+
+  let advice = '';
+  if (overestimates.length > underestimates.length && overestimates.length >= 2) {
+    advice = `Модель чаще <strong>завышает</strong> прогноз (${overPct}% случаев — зелёный, а грибов не было). Попробуйте поднять <code>threshold.green</code> в <code>config.js</code> с 70 до 75–80.`;
+  } else if (underestimates.length > overestimates.length && underestimates.length >= 2) {
+    advice = `Модель чаще <strong>занижает</strong> прогноз (${underPct}% случаев — красный, а грибы были). Попробуйте снизить <code>threshold.green</code> до 60–65.`;
+  } else if (pct >= 80) {
+    advice = `Модель хорошо откалибрована: ${pct}% совпадений. Продолжайте собирать данные для подтверждения.`;
+  } else {
+    advice = `Ошибки распределены равномерно — модель неплохо сбалансирована, но данных пока мало для уверенных выводов.`;
+  }
+
+  const barW = (n) => Math.round((n / total) * 100);
+
+  return `<div class="accuracy-card">
+    <h4>Точность модели · ${pct}% (${correct.length}/${total} безжёлтых дней)</h4>
+    <div class="accuracy-bar-row">
+      <span style="width:100px;font-size:12px">✓ Верно</span>
+      <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(correct.length)}%;background:#4A7C3A"></div></div>
+      <span style="font-size:12px;min-width:28px">${correct.length}</span>
+    </div>
+    <div class="accuracy-bar-row">
+      <span style="width:100px;font-size:12px">↑ Завышено</span>
+      <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(overestimates.length)}%;background:#B45441"></div></div>
+      <span style="font-size:12px;min-width:28px">${overestimates.length}</span>
+    </div>
+    <div class="accuracy-bar-row">
+      <span style="width:100px;font-size:12px">↓ Занижено</span>
+      <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(underestimates.length)}%;background:#D29A3C"></div></div>
+      <span style="font-size:12px;min-width:28px">${underestimates.length}</span>
+    </div>
+    <div class="accuracy-note">💡 ${advice}</div>
+  </div>`;
 }
 
 function compareSign(a, b) {
@@ -777,6 +905,7 @@ window.app = {
   setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope,
   openDayForm, saveDay, deleteDay, syncHistoricalForDay,
   syncAllHistorical, syncAllWeather,
+  previewDayScore,
   addCustomSpeciesFromInput, removeCustomSpecies,
   openSettings, saveSettingsAndCreateGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
