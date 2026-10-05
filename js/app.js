@@ -478,22 +478,22 @@ function renderDashboard() {
     const general = projectDayScore(w.hist, w.fc, i);
     if (!loc.species?.length) return { ...general, hint: null };
     const shifted = projectSpeciesScores(w.hist, w.fc, i, loc.species);
-    const best = shifted[0]; // best species by trigger score, sorted desc
-    if (!best) return { ...general, hint: null };
-    // Health score: soilM + soilT + temperature, NO rain gate.
-    // Rain gate belongs in the trigger; ongoing wave health depends on soil + warmth only.
-    const health = quickHealthScore(
-      general.soilM, general.soilT,
-      w.fc.tMax[i], w.fc.tMin[i],
-      general.frostInLast7Days,
-      best.species
-    );
-    // Geometric mean: both trigger quality AND wave health matter
-    const blendedScore = Math.round(Math.sqrt(best.score * health));
-    const status = statusFromScore(blendedScore);
-    const hint = buildForecastHint(best.score, health, best.species, best.lag);
-    return { ...general, score: blendedScore, status, bestSpecies: best.species,
-             triggerScore: best.score, healthScore: health, hint };
+    if (!shifted.length) return { ...general, hint: null, allSpecies: [] };
+    // Per-species blend: √(triggerScore × healthScore), health uses species-specific thresholds
+    const blended = shifted.map(sp => {
+      const health = quickHealthScore(
+        general.soilM, general.soilT,
+        w.fc.tMax[i], w.fc.tMin[i],
+        general.frostInLast7Days,
+        sp.species
+      );
+      const score = Math.round(Math.sqrt(sp.score * health));
+      return { ...sp, score, status: statusFromScore(score), triggerScore: sp.score, healthScore: health };
+    }).sort((a, b) => b.score - a.score);
+    const best = blended[0];
+    const hint = buildForecastHint(best.triggerScore, best.healthScore, best.species, best.lag);
+    return { ...general, score: best.score, status: best.status, bestSpecies: best.species,
+             allSpecies: blended, hint };
   });
 
   const greenAhead = nextDays.filter(d => d.status === 'green').length;
@@ -581,7 +581,11 @@ function renderDashboard() {
   document.getElementById('forecastGrid').innerHTML = w.fc.dates.slice(0, 10).map((d, i) => {
     const r = nextDays[i];
     const dt = new Date(d);
-    const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
+    const speciesRows = r.allSpecies?.length
+      ? `<div class="day-species-list">${r.allSpecies.map(s =>
+          `<div class="day-sp-row"><span class="day-sp-name">${s.species}</span><span class="score-pill ${s.status} day-sp-score">${s.score}</span></div>`
+        ).join('')}</div>`
+      : (r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '');
     const hintBtn = r.hint
       ? `<button class="day-hint-btn" onclick="event.stopPropagation();window.app.showDayHint(this)" data-hint="${r.hint.replace(/"/g, '&quot;')}">ℹ почему?</button>`
       : '';
@@ -591,7 +595,7 @@ function renderDashboard() {
       <div class="day-score">${r.score}</div>
       <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
       <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
-      ${speciesLabel}
+      ${speciesRows}
       ${hintBtn}
     </div>`;
   }).join('');
