@@ -1,5 +1,5 @@
 // Minimal service worker — enables PWA install prompt and basic offline UI shell
-const CACHE = 'mushroom-v1';
+const CACHE = 'mushroom-v2';
 const SHELL = [
   './',
   './index.html',
