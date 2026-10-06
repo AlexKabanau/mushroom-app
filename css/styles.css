@@ -38,6 +38,7 @@ nav.tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 1px soli
 .location-bar label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #8A7C6B; margin-right: 10px; }
 .location-bar select { font-family: inherit; font-size: 15px; padding: 6px 10px; border: 1px solid #E6DECC; border-radius: 6px; background: white; color: #2D2621; cursor: pointer; }
 .loc-info { font-size: 13px; color: #6B5F52; }
+#refreshWeatherBtn { flex-shrink: 0; }
 
 .factors { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
 .card { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 14px 16px; }
@@ -216,6 +217,59 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .accuracy-bar { flex: 1; height: 8px; border-radius: 4px; background: #F2EBDA; overflow: hidden; }
 .accuracy-fill { height: 100%; border-radius: 4px; transition: width 400ms; }
 .accuracy-note { margin-top: 10px; font-size: 12px; color: #6B5F52; background: #FBF3DF; border-radius: 6px; padding: 8px 10px; border: 1px solid #E2CA8E; }
+
+/* Forecast header with toggle */
+.forecast-header { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 12px; }
+.forecast-header h3 { margin: 0; }
+
+/* Location comparison strip */
+.loc-compare-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: white; border: 1px solid #E6DECC; border-radius: 8px; margin-bottom: 6px; cursor: pointer; transition: background 120ms; flex-wrap: wrap; }
+.loc-compare-row:hover { background: #FAF6EC; }
+.loc-compare-row.lc-active { border-color: #B5CDA0; background: #EDF4E4; }
+.lc-name { font-size: 14px; font-weight: 500; flex: 1 0 120px; min-width: 120px; }
+.lc-here { color: #4A7C3A; font-size: 10px; }
+.lc-score-wrap { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.lc-score-pill { font-size: 14px !important; padding: 3px 10px !important; }
+.lc-species { font-size: 11px; color: #6B5F52; }
+.lc-mini-forecast { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.lc-dot-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.lc-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.lc-dot-green  { background: #4A7C3A; }
+.lc-dot-yellow { background: #D29A3C; }
+.lc-dot-red    { background: #B45441; }
+.lc-dot-day { font-size: 9px; color: #8A7C6B; }
+.lc-weather { font-size: 11px; color: #8A7C6B; flex: 0 0 auto; }
+.lc-nodata { font-size: 12px; color: #B45441; }
+
+/* Calendar view */
+.cal-month-title { font-family: Georgia, serif; font-size: 16px; font-weight: 500; margin-bottom: 8px; color: #4A3F35; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-header-cell { text-align: center; font-size: 11px; font-weight: 600; color: #8A7C6B; padding: 4px 2px; }
+.cal-cell { min-height: 54px; border-radius: 6px; padding: 4px 5px; border: 1px solid transparent; display: flex; flex-direction: column; gap: 1px; }
+.cal-cell.cal-has-data { cursor: pointer; border-color: #E6DECC; transition: transform 100ms; }
+.cal-cell.cal-has-data:hover { transform: scale(1.04); }
+.cal-cell.cal-green  { background: #EDF4E4; border-color: #B5CDA0; }
+.cal-cell.cal-yellow { background: #FBF3DF; border-color: #E2CA8E; }
+.cal-cell.cal-red    { background: #F6E3DE; border-color: #D9A99A; }
+.cal-cell.cal-today  { box-shadow: 0 0 0 2px #B45441; }
+.cal-cell.cal-empty  { border: none; background: transparent; }
+.cal-day-num { font-size: 11px; color: #8A7C6B; }
+.cal-score { font-size: 18px; font-weight: 700; color: #2D2621; line-height: 1.1; }
+.cal-species { font-size: 9px; color: #6B5F52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Phenology calendar */
+.pheno-table { overflow-x: auto; }
+.pheno-head-row { position: sticky; top: 0; background: #FAF6EC; z-index: 1; }
+.pheno-row { display: flex; align-items: stretch; min-height: 28px; }
+.pheno-row:not(.pheno-head-row):hover { background: #F7F3EB; }
+.pheno-species-name { width: 140px; flex-shrink: 0; font-size: 12px; padding: 4px 6px; color: #4A3F35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.pheno-header { flex: 1; text-align: center; font-size: 10px; font-weight: 600; color: #8A7C6B; padding: 4px 2px; border-right: 1px solid #F2EBDA; }
+.pheno-header.pheno-now { color: #B45441; font-weight: 700; }
+.pheno-cell { flex: 1; border-right: 1px solid #F2EBDA; }
+.pheno-cell.pheno-peak { background: #4A7C3A; opacity: 0.75; border-radius: 2px; }
+.pheno-cell.pheno-now-col { background: rgba(180,84,65,0.06); }
+.pheno-cell.pheno-peak.pheno-now-col { opacity: 1; }
+.pheno-peak-legend { display: inline-block; width: 14px; height: 10px; background: #4A7C3A; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 
 /* Forest trees (iNat) in location detail */
 .forest-trees-list { margin-top: 4px; }

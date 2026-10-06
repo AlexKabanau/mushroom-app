@@ -12,6 +12,7 @@ let state = null;
 let chartInstance = null;
 let radarChartInstance = null;
 let forecastDays = []; // cached for modal access on card click
+let forecastView = 'cards'; // 'cards' | 'calendar'
 
 /**
  * Given a day's trip date and a trigger window (fetchTriggerWindow result),
@@ -553,6 +554,141 @@ function setPatternRef(id) {
 }
 
 // =========================
+// Location comparison
+// =========================
+function renderLocationComparison() {
+  const wrap = document.getElementById('locationCompareWrap');
+  if (!wrap) return;
+  if (state.locations.length < 2) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+
+  const weekdays = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+  const rows = state.locations.map(loc => {
+    const w = state.weather[loc.id];
+    if (!w) return `<div class="loc-compare-row">
+      <div class="lc-name">${loc.name}</div>
+      <div class="lc-score lc-nodata">нет погоды</div>
+    </div>`;
+
+    const general  = projectDayScore(w.hist, w.fc, 0);
+    const spScores = loc.species?.length ? projectSpeciesScores(w.hist, w.fc, 0, loc.species) : [];
+    const best     = spScores[0] || null;
+    const health   = best ? quickHealthScore(general.soilM, general.soilT, w.fc.tMax[0], w.fc.tMin[0], general.frostInLast7Days, best.species) : null;
+    const score    = best ? Math.round(Math.sqrt(best.score * health)) : general.score;
+    const status   = statusFromScore(score);
+
+    // Next 5 days mini-dots
+    const fcLen3 = Math.min(5, w.fc.dates.length);
+    const fcDots = Array.from({ length: fcLen3 }, (_, i) => {
+      const g2  = projectDayScore(w.hist, w.fc, i);
+      const sp2 = loc.species?.length ? projectSpeciesScores(w.hist, w.fc, i, loc.species) : [];
+      const b2  = sp2[0];
+      const h2  = b2 ? quickHealthScore(g2.soilM, g2.soilT, w.fc.tMax[i], w.fc.tMin[i], g2.frostInLast7Days, b2.species) : null;
+      const s2  = b2 ? Math.round(Math.sqrt(b2.score * h2)) : g2.score;
+      const st2 = statusFromScore(s2);
+      const dt  = new Date(w.fc.dates[i]);
+      return `<div class="lc-dot-cell">
+        <span class="lc-dot lc-dot-${st2}"></span>
+        <span class="lc-dot-day">${weekdays[dt.getDay()]}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="loc-compare-row ${loc.id === state.activeLocationId ? 'lc-active' : ''}" onclick="window.app.setActive('${loc.id}')">
+      <div class="lc-name">${loc.name}${loc.id === state.activeLocationId ? ' <span class="lc-here">●</span>' : ''}</div>
+      <div class="lc-score-wrap">
+        <span class="score-pill ${status} lc-score-pill">${score}</span>
+        ${best ? `<span class="lc-species">${best.species}</span>` : ''}
+      </div>
+      <div class="lc-mini-forecast">${fcDots}</div>
+      <div class="lc-weather">Tп ${general.soilT}° · ${general.rain10d}мм</div>
+    </div>`;
+  }).join('');
+
+  wrap.innerHTML = rows;
+}
+
+// =========================
+// Forecast view toggle (cards ↔ calendar)
+// =========================
+function renderForecastToggle() {
+  const btn = document.getElementById('forecastViewToggle');
+  if (btn) btn.textContent = forecastView === 'cards' ? '📅 Календарь' : '🗂 Карточки';
+}
+
+function toggleForecastView() {
+  forecastView = forecastView === 'cards' ? 'calendar' : 'cards';
+  renderForecastToggle();
+  const loc = state.locations.find(l => l.id === state.activeLocationId) || state.locations[0];
+  const w = loc && state.weather[loc.id];
+  if (!w) return;
+  renderForecastGrid(w);
+}
+
+function renderForecastGrid(w) {
+  const weekdays = ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"];
+
+  if (forecastView === 'cards') {
+    document.getElementById('forecastGrid').innerHTML = w.fc.dates.slice(0, 10).map((d, i) => {
+      const r = forecastDays[i];
+      if (!r) return '';
+      const dt = new Date(d);
+      const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
+      return `<div class="day ${r.status}${i === 0 ? ' today' : ''} day-clickable" onclick="window.app.showForecastModal(${i})">
+        <div class="day-weekday">${weekdays[dt.getDay()]}</div>
+        <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сег.' : ''}</div>
+        <div class="day-score">${r.score}</div>
+        <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
+        <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
+        ${speciesLabel}
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  // Calendar view — show current month + next if needed
+  const today = new Date();
+  const year  = today.getFullYear();
+  const month = today.getMonth(); // 0-based
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthRu = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][month];
+
+  // Build a map: "YYYY-MM-DD" → forecast day data + index
+  const fcMap = {};
+  w.fc.dates.slice(0, 10).forEach((d, i) => { fcMap[d] = { r: forecastDays[i], i, w }; });
+
+  const cells = [];
+  // Blank cells before first day (Mon-based: Mon=0)
+  const startOffset = (firstDay + 6) % 7; // convert Sun=0 to Mon=0
+  for (let k = 0; k < startOffset; k++) cells.push(`<div class="cal-cell cal-empty"></div>`);
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const fc = fcMap[dateStr];
+    const isToday = day === today.getDate();
+    if (fc) {
+      cells.push(`<div class="cal-cell cal-has-data cal-${fc.r.status}${isToday ? ' cal-today' : ''}" onclick="window.app.showForecastModal(${fc.i})">
+        <span class="cal-day-num">${day}</span>
+        <span class="cal-score">${fc.r.score}</span>
+        ${fc.r.bestSpecies ? `<span class="cal-species">${fc.r.bestSpecies.split(' ')[0]}</span>` : ''}
+      </div>`);
+    } else {
+      cells.push(`<div class="cal-cell${isToday ? ' cal-today' : ''}"><span class="cal-day-num">${day}</span></div>`);
+    }
+  }
+
+  const dayHeaders = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d =>
+    `<div class="cal-header-cell">${d}</div>`).join('');
+
+  document.getElementById('forecastGrid').innerHTML =
+    `<div class="cal-month-title">${monthRu} ${year}</div>
+     <div class="cal-grid">
+       ${dayHeaders}
+       ${cells.join('')}
+     </div>`;
+}
+
+// =========================
 // Dashboard
 // =========================
 function renderDashboard() {
@@ -566,6 +702,9 @@ function renderDashboard() {
   sel.innerHTML = state.locations.map(l =>
     `<option value="${l.id}" ${l.id === loc.id ? 'selected' : ''}>${l.name}</option>`
   ).join('');
+  // Refresh button state
+  const refreshBtn = document.getElementById('refreshWeatherBtn');
+  if (refreshBtn) refreshBtn.disabled = false;
 
   const biotopeStr = Array.isArray(loc.biotope) ? loc.biotope.join(' + ') : (loc.biotope || '');
   const parts = [
@@ -700,21 +839,9 @@ function renderDashboard() {
     }
   }
 
-  // Forecast grid
-  const weekdays = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-  document.getElementById('forecastGrid').innerHTML = w.fc.dates.slice(0, 10).map((d, i) => {
-    const r = nextDays[i];
-    const dt = new Date(d);
-    const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
-    return `<div class="day ${r.status}${i === 0 ? ' today' : ''} day-clickable" onclick="window.app.showForecastModal(${i})">
-      <div class="day-weekday">${weekdays[dt.getDay()]}</div>
-      <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сег.' : ''}</div>
-      <div class="day-score">${r.score}</div>
-      <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
-      <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
-      ${speciesLabel}
-    </div>`;
-  }).join('');
+  // Forecast grid (cards or calendar)
+  renderForecastGrid(w);
+  renderForecastToggle();
 
   // Chart — combine historical (30d) + forecast (10d)
   if (chartInstance) chartInstance.destroy();
@@ -778,6 +905,9 @@ function renderDashboard() {
       }
     }
   });
+
+  // Location comparison
+  renderLocationComparison();
 
   // Radar chart
   renderRadarChart(w, loc);
@@ -1225,6 +1355,10 @@ function renderPatterns() {
     </div>
 
     ${buildAccuracyBlock(validationRows, accuracy)}
+    ${buildSpeciesAccuracyBlock(validationRows)}
+
+    <h3 style="margin-top:28px">Фенологический календарь</h3>
+    <div id="phenologyCalendarWrap"></div>
 
     <h3 style="margin-top:28px">Валидация модели <span class="count">${validationRows.length} зап.${accuracy !== null ? ` · точность ${accuracy}%` : ''}</span></h3>
     <div class="checklist" style="padding:0;overflow:hidden"><table class="validation-table">
@@ -1244,6 +1378,43 @@ function renderPatterns() {
       }).join('')}</tbody>
     </table></div>
   `;
+
+  // Render phenology calendar after innerHTML is set
+  renderPhenologyCalendar();
+}
+
+function buildSpeciesAccuracyBlock(rows) {
+  // Group days by species, compute accuracy per species
+  const bySpecies = {};
+  rows.forEach(r => {
+    (r.d.species || []).forEach(sp => {
+      if (!bySpecies[sp]) bySpecies[sp] = { total: 0, correct: 0, over: 0, under: 0 };
+      if (r.predStatus === 'yellow') return;
+      bySpecies[sp].total++;
+      if (r.match) bySpecies[sp].correct++;
+      else if (r.predStatus === 'green' && !r.actualIsSuccess) bySpecies[sp].over++;
+      else if (r.predStatus === 'red' && r.actualIsSuccess) bySpecies[sp].under++;
+    });
+  });
+
+  const entries = Object.entries(bySpecies).filter(([, v]) => v.total >= 2).sort((a, b) => b[1].total - a[1].total);
+  if (entries.length === 0) return '';
+
+  const spRows = entries.map(([sp, v]) => {
+    const pct = Math.round((v.correct / v.total) * 100);
+    const color = pct >= 75 ? '#4A7C3A' : pct >= 50 ? '#B88A2C' : '#A04A3A';
+    return `<div class="accuracy-bar-row">
+      <span style="width:130px;font-size:12px;color:#4A3F35">${sp}</span>
+      <div class="accuracy-bar"><div class="accuracy-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span style="font-size:12px;min-width:52px;color:#6B5F52">${pct}% (${v.correct}/${v.total})</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="accuracy-card" style="margin-top:12px">
+    <h4>Точность по видам</h4>
+    ${spRows}
+    <div class="accuracy-note">Только безжёлтые дни · минимум 2 записи на вид</div>
+  </div>`;
 }
 
 function buildAccuracyBlock(rows, accuracy) {
@@ -1290,6 +1461,57 @@ function buildAccuracyBlock(rows, accuracy) {
     </div>
     <div class="accuracy-note">💡 ${advice}</div>
   </div>`;
+}
+
+// =========================
+// Phenology calendar
+// =========================
+function renderPhenologyCalendar() {
+  const wrap = document.getElementById('phenologyCalendarWrap');
+  if (!wrap) return;
+
+  const monthNames = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+  const currentMonth = new Date().getMonth() + 1; // 1-based
+
+  // Get species that have peakMonths defined + any user species in their days
+  const configSpecies = Object.entries(CONFIG.speciesConfig)
+    .filter(([, cfg]) => cfg.peakMonths?.length)
+    .map(([name, cfg]) => ({ name, peakMonths: cfg.peakMonths, emoji: cfg.emoji || '🍄', note: cfg.note || '' }));
+
+  if (configSpecies.length === 0) {
+    wrap.innerHTML = '<p style="font-size:13px;color:#8A7C6B">Нет видов с данными о сезоне.</p>';
+    return;
+  }
+
+  const headerCells = monthNames.map((m, i) => {
+    const active = (i + 1) === currentMonth;
+    return `<div class="pheno-header${active ? ' pheno-now' : ''}">${m}</div>`;
+  }).join('');
+
+  const rows = configSpecies.map(sp => {
+    const cells = monthNames.map((_, i) => {
+      const m = i + 1;
+      const isPeak = sp.peakMonths.includes(m);
+      const isCurrent = m === currentMonth;
+      return `<div class="pheno-cell${isPeak ? ' pheno-peak' : ''}${isCurrent ? ' pheno-now-col' : ''}"></div>`;
+    }).join('');
+    return `<div class="pheno-row">
+      <div class="pheno-species-name" title="${sp.note}">${sp.name}</div>
+      ${cells}
+    </div>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="pheno-table">
+      <div class="pheno-row pheno-head-row">
+        <div class="pheno-species-name"></div>${headerCells}
+      </div>
+      ${rows}
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:#8A7C6B">
+      <span class="pheno-peak-legend"></span> Пик сезона &nbsp;
+      <span style="border-left:2px solid #B45441;display:inline-block;height:10px;vertical-align:middle;margin-right:3px"></span> Сейчас
+    </div>`;
 }
 
 function compareSign(a, b) {
@@ -1531,7 +1753,7 @@ function showForecastModal(idx) {
       <div style="width:50px;height:50px;border-radius:50%;background:${dotColor};display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;flex-shrink:0">${dotIcon} ${r.score}</div>
       <div>
         <div style="font-size:19px;font-family:Georgia,serif;font-weight:500">${dateStr}</div>
-        <div style="font-size:13px;color:#6B5F52">${w.fc.tMax[idx].toFixed(0)}° / ${w.fc.tMin[idx].toFixed(0)}° · 💧 ${w.fc.rain[idx]} мм · Tп ${r.soilT}°</div>
+        <div style="font-size:13px;color:#6B5F52">${w.fc.tMax[idx].toFixed(0)}° / ${w.fc.tMin[idx].toFixed(0)}° · 💧 ${w.fc.rain[idx]} мм · Tп ${r.soilT}°${w.fc.wind?.[idx] != null ? ` · 💨 ${Math.round(w.fc.wind[idx])} км/ч` : ''}${w.fc.humidity?.[idx] != null ? ` · 💦 ${Math.round(w.fc.humidity[idx])}%` : ''}</div>
       </div>
     </div>
     ${speciesHtml ? `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8A7C6B;margin-top:16px;margin-bottom:2px">Виды <span style="color:#A89880;font-weight:400;text-transform:none">↯ = скор триггера</span></div>${speciesHtml}` : ''}
@@ -1560,7 +1782,8 @@ window.app = {
   openSettings, saveSettingsAndCreateGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
   closeModal, showToast, showForecastModal,
-  setPatternRef
+  setPatternRef,
+  toggleForecastView
 };
 
 // Boot

@@ -42,6 +42,7 @@
       <div class="location-bar">
         <div><label>Локация</label><select id="locationSelector"></select></div>
         <div class="loc-info" id="locationInfo"></div>
+        <button id="refreshWeatherBtn" class="btn sm" onclick="window.app.syncAllWeather()" title="Обновить погоду">⟳ Обновить</button>
       </div>
       <div class="verdict" id="heroVerdict">
         <div class="verdict-dot" id="verdictDot">●</div>
@@ -52,6 +53,7 @@
       </div>
       <div class="factors" id="factorCards"></div>
       <div class="species-breakdown-wrap" id="speciesBreakdown" style="display:none"></div>
+      <div id="locationCompareWrap" style="display:none;margin-bottom:18px"></div>
       <div id="radarSection" style="display:none">
         <h3>Сегодня vs идеал</h3>
         <div class="radar-wrap">
@@ -59,7 +61,10 @@
           <div id="radarMeta"></div>
         </div>
       </div>
-      <h3>Прогноз на 10 дней</h3>
+      <div class="forecast-header">
+        <h3 style="margin:0">Прогноз на 10 дней</h3>
+        <button id="forecastViewToggle" class="btn sm" onclick="window.app.toggleForecastView()">📅 Календарь</button>
+      </div>
       <div class="forecast" id="forecastGrid"></div>
       <div class="legend">
         <div class="legend-item"><span class="legend-dot" style="background:#4A7C3A"></span>Ехать</div>
