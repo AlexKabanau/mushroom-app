@@ -242,20 +242,19 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .lc-nodata { font-size: 12px; color: #B45441; }
 
 /* Calendar view */
-.cal-month-title { font-family: Georgia, serif; font-size: 16px; font-weight: 500; margin-bottom: 8px; color: #4A3F35; }
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-.cal-header-cell { text-align: center; font-size: 11px; font-weight: 600; color: #8A7C6B; padding: 4px 2px; }
-.cal-cell { min-height: 54px; border-radius: 6px; padding: 4px 5px; border: 1px solid transparent; display: flex; flex-direction: column; gap: 1px; }
-.cal-cell.cal-has-data { cursor: pointer; border-color: #E6DECC; transition: transform 100ms; }
-.cal-cell.cal-has-data:hover { transform: scale(1.04); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-header-cell { text-align: center; font-size: 11px; font-weight: 600; color: #8A7C6B; padding: 4px 2px 6px; }
+.cal-cell { height: 68px; border-radius: 8px; padding: 5px 6px; border: 1px solid #EDE6D8; display: flex; flex-direction: column; gap: 1px; background: #FDFAF4; }
+.cal-cell.cal-past { opacity: 0.45; }
+.cal-cell.cal-has-data { cursor: pointer; transition: transform 120ms, box-shadow 120ms; }
+.cal-cell.cal-has-data:hover { transform: translateY(-2px); box-shadow: 0 3px 10px rgba(0,0,0,0.10); }
 .cal-cell.cal-green  { background: #EDF4E4; border-color: #B5CDA0; }
 .cal-cell.cal-yellow { background: #FBF3DF; border-color: #E2CA8E; }
 .cal-cell.cal-red    { background: #F6E3DE; border-color: #D9A99A; }
-.cal-cell.cal-today  { box-shadow: 0 0 0 2px #B45441; }
-.cal-cell.cal-empty  { border: none; background: transparent; }
-.cal-day-num { font-size: 11px; color: #8A7C6B; }
-.cal-score { font-size: 18px; font-weight: 700; color: #2D2621; line-height: 1.1; }
-.cal-species { font-size: 9px; color: #6B5F52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-cell.cal-today  { box-shadow: 0 0 0 2px #B45441 !important; }
+.cal-day-num { font-size: 11px; color: #8A7C6B; line-height: 1; }
+.cal-score { font-size: 20px; font-weight: 700; color: #2D2621; line-height: 1.15; }
+.cal-species { font-size: 9px; color: #6B5F52; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: auto; }
 
 /* Phenology calendar */
 .pheno-table { overflow-x: auto; }

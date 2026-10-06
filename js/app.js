@@ -645,27 +645,39 @@ function renderForecastGrid(w) {
     return;
   }
 
-  // Calendar view — show current month + next if needed
+  // Calendar view — 3 weeks starting from Monday of current week
   const today = new Date();
-  const year  = today.getFullYear();
-  const month = today.getMonth(); // 0-based
-  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthRu = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'][month];
+  const todayStr2 = today.toISOString().slice(0, 10);
+  const dowMon = (today.getDay() + 6) % 7; // Mon=0, Sun=6
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - dowMon);
 
-  // Build a map: "YYYY-MM-DD" → forecast day data + index
+  // Build a map: "YYYY-MM-DD" → { r, i }
   const fcMap = {};
-  w.fc.dates.slice(0, 10).forEach((d, i) => { fcMap[d] = { r: forecastDays[i], i, w }; });
+  w.fc.dates.slice(0, 10).forEach((d, i) => { fcMap[d] = { r: forecastDays[i], i }; });
 
+  const monthsRu = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
   const cells = [];
-  // Blank cells before first day (Mon-based: Mon=0)
-  const startOffset = (firstDay + 6) % 7; // convert Sun=0 to Mon=0
-  for (let k = 0; k < startOffset; k++) cells.push(`<div class="cal-cell cal-empty"></div>`);
+  let lastMonth = -1;
+  let monthLabelHtml = '';
 
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const fc = fcMap[dateStr];
-    const isToday = day === today.getDate();
+  // 3 rows × 7 = 21 cells
+  for (let k = 0; k < 21; k++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + k);
+    const ds = d.toISOString().slice(0, 10);
+    const isToday = ds === todayStr2;
+    const isPast  = d < today && !isToday;
+    const m = d.getMonth();
+    const day = d.getDate();
+
+    // Month label at start of new month
+    if (m !== lastMonth) {
+      lastMonth = m;
+      monthLabelHtml += `<span class="cal-month-chip" style="grid-column: ${(k % 7) + 1}">${monthsRu[m]} ${d.getFullYear()}</span>`;
+    }
+
+    const fc = fcMap[ds];
     if (fc) {
       cells.push(`<div class="cal-cell cal-has-data cal-${fc.r.status}${isToday ? ' cal-today' : ''}" onclick="window.app.showForecastModal(${fc.i})">
         <span class="cal-day-num">${day}</span>
@@ -673,7 +685,9 @@ function renderForecastGrid(w) {
         ${fc.r.bestSpecies ? `<span class="cal-species">${fc.r.bestSpecies.split(' ')[0]}</span>` : ''}
       </div>`);
     } else {
-      cells.push(`<div class="cal-cell${isToday ? ' cal-today' : ''}"><span class="cal-day-num">${day}</span></div>`);
+      cells.push(`<div class="cal-cell${isToday ? ' cal-today' : ''}${isPast ? ' cal-past' : ''}">
+        <span class="cal-day-num">${day}</span>
+      </div>`);
     }
   }
 
@@ -681,8 +695,7 @@ function renderForecastGrid(w) {
     `<div class="cal-header-cell">${d}</div>`).join('');
 
   document.getElementById('forecastGrid').innerHTML =
-    `<div class="cal-month-title">${monthRu} ${year}</div>
-     <div class="cal-grid">
+    `<div class="cal-grid">
        ${dayHeaders}
        ${cells.join('')}
      </div>`;
