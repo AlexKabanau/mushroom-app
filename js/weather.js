@@ -18,7 +18,7 @@ export async function fetchWeather(lat, lon) {
 
   const archiveUrl = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}&start_date=${dayStr(start)}&end_date=${dayStr(yesterday)}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
-  const forecastUrl = `${CONFIG.endpoints.openMeteoForecast}?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean&past_days=1&forecast_days=14&timezone=${encodeURIComponent(CONFIG.timezone)}`;
+  const forecastUrl = `${CONFIG.endpoints.openMeteoForecast}?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&past_days=1&forecast_days=14&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
   const [archive, forecast] = await Promise.all([
     fetch(archiveUrl).then(r => r.json()),
@@ -44,7 +44,9 @@ export async function fetchWeather(lat, lon) {
     tMax: forecast.daily.temperature_2m_max.slice(slice, slice + 10),
     tMin: forecast.daily.temperature_2m_min.slice(slice, slice + 10),
     rain: forecast.daily.precipitation_sum.slice(slice, slice + 10),
-    humidity: forecast.daily.relative_humidity_2m_mean.slice(slice, slice + 10)
+    humidity: forecast.daily.relative_humidity_2m_mean.slice(slice, slice + 10),
+    soilT: (forecast.daily.soil_temperature_7_to_28cm_mean || []).slice(slice, slice + 10),
+    soilM: (forecast.daily.soil_moisture_7_to_28cm_mean || []).slice(slice, slice + 10)
   };
 
   return {

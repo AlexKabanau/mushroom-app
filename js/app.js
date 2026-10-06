@@ -5,6 +5,7 @@ import { loadLocal, saveAndSync, pullAndMerge } from './storage.js';
 import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
 import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow } from './weather.js';
 import { fetchBiotope } from './osm.js';
+import { fetchForestTrees } from './inat.js';
 import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores } from './scoring.js';
 
 let state = null;
@@ -134,6 +135,22 @@ async function syncBiotope(locId) {
     showToast('Биотоп подтянут из OSM');
   } catch (e) {
     showToast('Не удалось: ' + e.message);
+  }
+}
+
+async function syncForestType(locId) {
+  const loc = state.locations.find(l => l.id === locId);
+  if (!loc) return;
+  showToast(`Загружаю деревья для «${loc.name}»…`);
+  try {
+    const trees = await fetchForestTrees(loc.lat, loc.lon, 5);
+    loc.forestTrees = trees;
+    loc.forestTreesSyncedAt = new Date().toISOString().slice(0, 10);
+    saveAndSync(state);
+    renderLocations();
+    showToast(`Найдено ${trees.length} видов деревьев`);
+  } catch (e) {
+    showToast('Не удалось загрузить iNat: ' + e.message);
   }
 }
 
@@ -431,6 +448,111 @@ function renderRadarChart(w, loc) {
 }
 
 // =========================
+// Pattern forecast
+// =========================
+
+/**
+ * Compute % similarity between reference day conditions and a forecast day.
+ * Each parameter compared within a reasonable range; weighted sum → 0–100.
+ */
+function patternMatch(ref, fc) {
+  const params = [
+    { r: ref.rain10d, f: fc.rain10d, range: 40,   w: 0.30 },
+    { r: ref.soilM,   f: fc.soilM,   range: 0.18, w: 0.25 },
+    { r: ref.soilT,   f: fc.soilT,   range: 10,   w: 0.25 },
+    { r: ref.tMax,    f: fc.tMax,    range: 12,   w: 0.12 },
+    { r: ref.tMin,    f: fc.tMin,    range: 8,    w: 0.08 },
+  ];
+  const score = params.reduce((sum, p) => {
+    if (p.r == null || p.f == null) return sum + p.w * 50;
+    const sim = Math.max(0, 1 - Math.abs(p.r - p.f) / p.range);
+    return sum + sim * p.w;
+  }, 0);
+  return Math.round(score * 100);
+}
+
+/** Render pattern-forecast block below the main forecast grid */
+function renderPatternForecast(w) {
+  const wrap = document.getElementById('patternForecastWrap');
+  if (!wrap) return;
+
+  // Days with conditions (reference pool)
+  const daysWithCond = state.mushroomDays.filter(d => d.conditions);
+  if (daysWithCond.length === 0) {
+    wrap.innerHTML = `<div style="font-size:13px;color:#8A7C6B;padding:10px 0">
+      Добавьте грибные дни и подтяните для них условия — появится сравнение с прогнозом.</div>`;
+    return;
+  }
+
+  const selectedId = wrap.dataset.selectedId || daysWithCond[0]?.id;
+  const refDay = daysWithCond.find(d => d.id === selectedId) || daysWithCond[0];
+  const refCond = refDay.conditions;
+  const refLoc  = state.locations.find(l => l.id === refDay.locationId);
+
+  const selectHtml = `<select id="patternRefSelect" onchange="window.app.setPatternRef(this.value)" style="font-size:13px;max-width:100%">
+    ${daysWithCond.map(d => {
+      const loc = state.locations.find(l => l.id === d.locationId);
+      const dt  = new Date(d.date);
+      const dstr= `${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+      const qLabels = { little:'мало', some:'средне', many:'много', jackpot:'джекпот', none:'пусто' };
+      const specStr = (d.species||[]).slice(0,2).join(', ');
+      return `<option value="${d.id}" ${d.id === refDay.id ? 'selected' : ''}>${dstr} · ${loc?.name||'?'} · ${qLabels[d.quantity]||d.quantity}${specStr ? ` · ${specStr}` : ''}</option>`;
+    }).join('')}
+  </select>`;
+
+  const weekdays = ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"];
+  const fcCards = w.fc.dates.map((dateStr, i) => {
+    const fcDay = forecastDays[i];
+    if (!fcDay) return '';
+    const dt = new Date(dateStr);
+    const fcCond = { rain10d: fcDay.rain10d, soilM: fcDay.soilM, soilT: fcDay.soilT,
+                     tMax: w.fc.tMax[i], tMin: w.fc.tMin[i] };
+    const pct = patternMatch(refCond, fcCond);
+    const color = pct >= 75 ? '#4A7C3A' : pct >= 50 ? '#D29A3C' : '#B45441';
+    const bg    = pct >= 75 ? '#EDF7ED' : pct >= 50 ? '#FDF4E3' : '#FDECEA';
+    return `<div style="background:${bg};border-radius:10px;padding:10px 12px;min-width:80px;text-align:center;flex:1 0 80px;max-width:100px">
+      <div style="font-size:11px;color:#6B5F52">${weekdays[dt.getDay()]}</div>
+      <div style="font-size:11px;color:#8A7C6B">${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')}</div>
+      <div style="font-size:22px;font-weight:700;color:${color};margin:4px 0">${pct}%</div>
+    </div>`;
+  }).join('');
+
+  // Per-parameter comparison for reference day
+  const paramRows = [
+    { label: '💧 Дождь 10д', ref: `${refCond.rain10d} мм`,     fc: `${forecastDays[0]?.rain10d ?? '?'} мм`  },
+    { label: '🌱 Влажн. почвы', ref: refCond.soilM?.toFixed(2), fc: forecastDays[0]?.soilM?.toFixed(2) || '?' },
+    { label: '🌍 Т почвы',   ref: `${refCond.soilT}°`,         fc: `${forecastDays[0]?.soilT ?? '?'}°` },
+    { label: '🌡 Т день',    ref: `${refCond.tMax}°`,           fc: `${w.fc.tMax[0]?.toFixed(0) ?? '?'}°` },
+  ].map(p => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #F2EBDA">
+    <span style="color:#6B5F52">${p.label}</span>
+    <span style="color:#A89880">эт: <b style="color:#4A3F35">${p.ref}</b></span>
+    <span style="color:#A89880">сег: <b style="color:#4A3F35">${p.fc}</b></span>
+  </div>`).join('');
+
+  wrap.innerHTML = `
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:#6B5F52;display:block;margin-bottom:4px">Эталонный день</label>
+      ${selectHtml}
+    </div>
+    <div style="font-size:12px;color:#8A7C6B;margin-bottom:10px">
+      ${refDay.date} · ${refLoc?.name||'?'} · Σ дождя ${refCond.rain10d} мм · Tп ${refCond.soilT}° · влажн. ${refCond.soilM?.toFixed(2)}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${fcCards}</div>
+    <div style="background:#F7F3EB;border-radius:8px;padding:10px 12px">${paramRows}</div>
+  `;
+}
+
+function setPatternRef(id) {
+  const wrap = document.getElementById('patternForecastWrap');
+  if (wrap) {
+    wrap.dataset.selectedId = id;
+    const loc  = state.locations.find(l => l.id === state.activeLocationId) || state.locations[0];
+    const w    = loc && state.weather[loc.id];
+    if (w) renderPatternForecast(w);
+  }
+}
+
+// =========================
 // Dashboard
 // =========================
 function renderDashboard() {
@@ -594,31 +716,74 @@ function renderDashboard() {
     </div>`;
   }).join('');
 
-  // Chart
+  // Chart — combine historical (30d) + forecast (10d)
   if (chartInstance) chartInstance.destroy();
+  const histLen = w.hist.dates.length;
+  const fcLen2  = w.fc.dates.length;
+  const allLabels = [
+    ...w.hist.dates.map(d => d.slice(5)),
+    ...w.fc.dates.map(d => d.slice(5))
+  ];
+  // Rain: hist + forecast
+  const rainHist = [...w.hist.rain, ...Array(fcLen2).fill(null)];
+  const rainFc   = [...Array(histLen).fill(null), ...w.fc.rain];
+  // Soil moisture: hist + forecast (from w.fc.soilM, fallback from forecastDays)
+  const soilMHist = [...w.hist.soilM, ...Array(fcLen2).fill(null)];
+  const soilMFc   = [...Array(histLen).fill(null), ...(w.fc.soilM?.length
+    ? w.fc.soilM.map(v => v != null ? parseFloat(v.toFixed(3)) : null)
+    : forecastDays.map(d => d.soilM))];
+  // Soil temp: hist + forecast (from w.fc.soilT, fallback from forecastDays)
+  const soilTHist = [...w.hist.soilT, ...Array(fcLen2).fill(null)];
+  const soilTFc   = [...Array(histLen).fill(null), ...(w.fc.soilT?.length
+    ? w.fc.soilT.map(v => v != null ? parseFloat(v.toFixed(1)) : null)
+    : forecastDays.map(d => d.soilT))];
   const ctx = document.getElementById('chart').getContext('2d');
   chartInstance = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: w.hist.dates.map(d => d.slice(5)),
+      labels: allLabels,
       datasets: [
-        { label: 'Осадки, мм', data: w.hist.rain, backgroundColor: '#8DA6D6', borderWidth: 0, yAxisID: 'y1', order: 2 },
-        { label: 'Влажность почвы', data: w.hist.soilM, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, yAxisID: 'y2', borderWidth: 2.5, order: 1 }
+        { label: 'Осадки (факт)', data: rainHist, backgroundColor: 'rgba(141,166,214,0.75)', borderWidth: 0, yAxisID: 'y1', order: 3 },
+        { label: 'Осадки (прогноз)', data: rainFc, backgroundColor: 'rgba(141,166,214,0.30)', borderWidth: 0, yAxisID: 'y1', order: 3 },
+        { label: 'Влажн. почвы', data: soilMHist, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, order: 1 },
+        { label: 'Влажн. (прогн.)', data: soilMFc,  type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, borderDash: [4,3], order: 1 },
+        { label: 'Т почвы, °C', data: soilTHist, type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, order: 2 },
+        { label: 'Т почвы (прогн.)', data: soilTFc,  type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, borderDash: [4,3], order: 2 }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
-        y1: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: '#F2EBDA' } },
-        y2: { type: 'linear', position: 'right', min: 0.2, max: 0.45, grid: { display: false } }
+        x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 14 } },
+        y1: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: '#F2EBDA' },
+              title: { display: true, text: 'мм', font: { size: 10 }, color: '#8DA6D6' } },
+        y2: { type: 'linear', position: 'right', min: 0.15, max: 0.5, grid: { display: false },
+              title: { display: true, text: 'влажн.', font: { size: 10 }, color: '#4A7C3A' } },
+        y3: { type: 'linear', position: 'right', min: 0, max: 25, grid: { display: false },
+              title: { display: true, text: '°C', font: { size: 10 }, color: '#D29A3C' },
+              offset: true }
       },
-      plugins: { legend: { position: 'top', align: 'end' } }
+      plugins: {
+        legend: { position: 'top', align: 'end', labels: { font: { size: 11 }, boxWidth: 14, padding: 8 } },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              // Mark where forecast starts
+              const idx = items[0]?.dataIndex;
+              if (idx === histLen) return ['— прогноз —'];
+              return [];
+            }
+          }
+        }
+      }
     }
   });
 
   // Radar chart
   renderRadarChart(w, loc);
+
+  // Pattern forecast
+  renderPatternForecast(w);
 
   // Checklist
   const checks = [
@@ -657,6 +822,7 @@ function renderLocations() {
           <button class="btn sm" onclick="window.app.setActive('${l.id}')">${l.id === state.activeLocationId ? '✓ активна' : 'Активировать'}</button>
           <button class="btn sm" onclick="window.app.openLocationForm('${l.id}')">Изменить</button>
           <button class="btn sm" onclick="window.app.syncBiotope('${l.id}')">⟳ OSM</button>
+          <button class="btn sm" onclick="window.app.syncForestType('${l.id}')">🌲 iNat</button>
           <button class="btn sm danger" onclick="window.app.deleteLocation('${l.id}')">×</button>
         </div>
       </div>
@@ -676,6 +842,19 @@ function renderLocations() {
         <div class="loc-detail-row">
           <div class="loc-detail-label">Виды грибов</div>
           <div class="loc-detail-value">${(l.species || []).length ? l.species.map(s => `<span class="pill green">${s}</span>`).join(' ') : '<em>не указаны</em>'}</div>
+        </div>
+        <div class="loc-detail-row">
+          <div class="loc-detail-label">Деревья (iNat 5 км)</div>
+          <div class="loc-detail-value">${l.forestTrees?.length
+            ? `<div class="forest-trees-list">${l.forestTrees.slice(0, 8).map(t =>
+                `<div class="forest-tree-row">
+                  <span class="forest-tree-name">${t.name}</span>
+                  <span class="forest-tree-latin">${t.latin}</span>
+                  <span class="forest-tree-count">${t.count} набл.</span>
+                </div>`).join('')}
+              </div><div class="loc-detail-sync">iNat синк: ${l.forestTreesSyncedAt || '?'} · ${l.forestTrees.length} видов</div>`
+            : '<em>не загружено — кнопка 🌲 iNat</em>'
+          }</div>
         </div>
         ${synced ? `<div class="loc-detail-sync">OSM синк: ${l.osmSyncedAt}</div>` : ''}
       </div>
@@ -1320,6 +1499,33 @@ function showForecastModal(idx) {
     ? `<div style="background:#F7F3EB;border-radius:8px;padding:12px 14px;margin-top:14px;font-size:13px;line-height:1.8">${r.hint}</div>`
     : '';
 
+  // Parameter bars: how each factor scores against model thresholds
+  const bestSp = r.allSpecies?.[0];
+  const paramConditions = {
+    rain10d: r.rain10d, soilM: r.soilM, soilT: r.soilT,
+    tMax: w.fc.tMax[idx], tMin: w.fc.tMin[idx]
+  };
+  const paramScores = conditionsToRadar(paramConditions, bestSp?.species || null);
+  const paramDefs = [
+    { label: '💧 Дождь 10 дн', value: `${r.rain10d} мм`,    score: paramScores[0] },
+    { label: '🌱 Влажность почвы', value: r.soilM.toFixed(2), score: paramScores[1] },
+    { label: '🌍 Темп. почвы',  value: `${r.soilT}°`,        score: paramScores[2] },
+    { label: '🌡 Темп. день',   value: `${w.fc.tMax[idx].toFixed(0)}°`,score: paramScores[3] },
+    { label: '🌙 Темп. ночь',   value: `${w.fc.tMin[idx].toFixed(0)}°`,score: paramScores[4] },
+  ];
+  const paramColor = s => s >= 80 ? '#4A7C3A' : s >= 40 ? '#D29A3C' : '#B45441';
+  const paramBarsHtml = `<div style="margin-top:16px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8A7C6B;margin-bottom:8px">Условия</div>
+    ${paramDefs.map(p => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+        <span style="font-size:12px;color:#4A3F35;width:130px;flex-shrink:0">${p.label}</span>
+        <div style="flex:1;height:7px;background:#F2EBDA;border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${p.score}%;background:${paramColor(p.score)};border-radius:4px;transition:width 0.4s"></div>
+        </div>
+        <span style="font-size:11px;color:#6B5F52;width:42px;text-align:right">${p.value}</span>
+      </div>`).join('')}
+  </div>`;
+
   openModal(`
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px">
       <div style="width:50px;height:50px;border-radius:50%;background:${dotColor};display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;flex-shrink:0">${dotIcon} ${r.score}</div>
@@ -1329,6 +1535,7 @@ function showForecastModal(idx) {
       </div>
     </div>
     ${speciesHtml ? `<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:#8A7C6B;margin-top:16px;margin-bottom:2px">Виды <span style="color:#A89880;font-weight:400;text-transform:none">↯ = скор триггера</span></div>${speciesHtml}` : ''}
+    ${paramBarsHtml}
     ${hintHtml}
     <div class="modal-actions"><button class="btn primary" onclick="window.app.closeModal()">Закрыть</button></div>
   `);
@@ -1345,14 +1552,15 @@ function renderAll() {
 
 // Expose for inline onclick= handlers
 window.app = {
-  setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope,
+  setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope, syncForestType,
   openDayForm, saveDay, deleteDay, syncHistoricalForDay,
   syncAllHistorical, syncAllWeather,
   previewDayScore,
   addCustomSpeciesFromInput, removeCustomSpecies,
   openSettings, saveSettingsAndCreateGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
-  closeModal, showToast, showForecastModal
+  closeModal, showToast, showForecastModal,
+  setPatternRef
 };
 
 // Boot

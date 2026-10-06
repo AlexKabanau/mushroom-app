@@ -217,6 +217,20 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .accuracy-fill { height: 100%; border-radius: 4px; transition: width 400ms; }
 .accuracy-note { margin-top: 10px; font-size: 12px; color: #6B5F52; background: #FBF3DF; border-radius: 6px; padding: 8px 10px; border: 1px solid #E2CA8E; }
 
+/* Forest trees (iNat) in location detail */
+.forest-trees-list { margin-top: 4px; }
+.forest-tree-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid #F2EBDA; font-size: 12px; }
+.forest-tree-name { color: #2D2621; flex: 1; }
+.forest-tree-latin { color: #8A7C6B; font-style: italic; flex: 1; }
+.forest-tree-count { color: #A89880; white-space: nowrap; }
+
+/* Pattern forecast section (collapsible) */
+.pattern-fc-section { background: white; border: 1px solid #E6DECC; border-radius: 10px; padding: 14px 18px; margin: 16px 0; }
+.pattern-fc-section > summary { font-family: Georgia, serif; font-size: 16px; font-weight: 500; cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; color: #4A3F35; user-select: none; }
+.pattern-fc-section > summary::after { content: '▸'; color: #8A7C6B; transition: transform 200ms; }
+.pattern-fc-section[open] > summary::after { transform: rotate(90deg); }
+.pattern-fc-section > summary::-webkit-details-marker { display: none; }
+
 footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid #E6DECC; font-size: 11px; color: #8A7C6B; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
 footer a { color: #4A7C3A; }
 

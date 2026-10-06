@@ -66,8 +66,12 @@
         <div class="legend-item"><span class="legend-dot" style="background:#D29A3C"></span>Можно, средне</div>
         <div class="legend-item"><span class="legend-dot" style="background:#B45441"></span>Рано/поздно</div>
       </div>
-      <h3>Последние 30 дней</h3>
-      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <details class="pattern-fc-section">
+        <summary>Сравнение с эталонным днём</summary>
+        <div id="patternForecastWrap" style="padding:8px 0"></div>
+      </details>
+      <h3>Погода за 30 дней + прогноз</h3>
+      <div class="chart-wrap" style="height:240px"><canvas id="chart"></canvas></div>
       <h3>Чек-лист</h3>
       <div class="checklist" id="checklist"></div>
     </section>

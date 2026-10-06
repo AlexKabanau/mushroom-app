@@ -4,7 +4,7 @@
 //   JS files  → network-first (always fresh after deploy, no manual version bumps)
 //   Everything else → cache-first (fast loads, offline shell)
 //
-const CACHE = 'mushroom-v3';
+const CACHE = 'mushroom-v5';
 const SHELL_STATIC = [
   './',
   './index.html',
@@ -34,14 +34,17 @@ self.addEventListener('fetch', e => {
   if (url.hostname.includes('open-meteo') ||
       url.hostname.includes('openstreetmap') ||
       url.hostname.includes('nominatim') ||
-      url.hostname.includes('api.github.com')) {
+      url.hostname.includes('api.github.com') ||
+      url.hostname.includes('inaturalist.org')) {
     return;
   }
 
-  // JS files: network-first → always picks up new deploys automatically
+  // JS files: network-first with cache: 'no-cache' — bypasses HTTP cache entirely.
+  // GitHub Pages sets Cache-Control: max-age=600; without no-cache even network-first
+  // would serve a stale HTTP-cached response for up to 10 minutes after deploy.
   if (url.pathname.endsWith('.js')) {
     e.respondWith(
-      fetch(e.request)
+      fetch(e.request, { cache: 'no-cache' })
         .then(res => {
           if (res.ok) {
             const clone = res.clone();
