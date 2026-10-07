@@ -287,6 +287,15 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid #E6DECC; font-size: 11px; color: #8A7C6B; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
 footer a { color: #4A7C3A; }
 
+/* Algorithm toggle (Текущий / MDI v2.0) */
+.algo-switch { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+.asw-label { font-size:12px; color:#8A7C6B; white-space:nowrap; }
+.asw-btns { display:flex; gap:0; border:1px solid #E6DECC; border-radius:20px; overflow:hidden; }
+.asw-btn { font-family:inherit; font-size:12px; font-weight:500; padding:4px 14px; border:none; background:white; color:#6B5F52; cursor:pointer; transition:background 100ms, color 100ms; }
+.asw-btn:first-child { border-right:1px solid #E6DECC; }
+.asw-btn.active { background:#B45441; color:white; }
+.asw-btn:hover:not(.active) { background:#FBF8EF; }
+
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #2D2621; color: white; padding: 10px 20px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 200ms; z-index: 200; pointer-events: none; }
 .toast.show { opacity: 1; }
 

@@ -203,7 +203,7 @@ function conditionsFromHist(hist, histOffset) {
  *
  * Returns array sorted by score desc.
  */
-export function projectSpeciesScores(hist, fc, idx, speciesList) {
+export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = scoreFromConditions) {
   if (!hist || !fc || !speciesList?.length) return [];
 
   return speciesList.map(sp => {
@@ -235,7 +235,7 @@ export function projectSpeciesScores(hist, fc, idx, speciesList) {
 
     if (!conditions) return null;
 
-    const score = scoreFromConditions(conditions, sp);
+    const score = scoreFn(conditions, sp);
     return {
       species: sp,
       emoji: cfg?.emoji || '🍄',

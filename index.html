@@ -44,6 +44,13 @@
         <div class="loc-info" id="locationInfo"></div>
         <button id="refreshWeatherBtn" class="btn sm" onclick="window.app.syncAllWeather()" title="Обновить погоду">⟳ Обновить</button>
       </div>
+      <div class="algo-switch" id="algoSwitch">
+        <span class="asw-label">Алгоритм:</span>
+        <div class="asw-btns">
+          <button class="asw-btn active" data-mode="classic" onclick="window.app.setAlgoMode('classic')">Текущий</button>
+          <button class="asw-btn" data-mode="mdi" onclick="window.app.setAlgoMode('mdi')">MDI v2.0</button>
+        </div>
+      </div>
       <div class="verdict" id="heroVerdict">
         <div class="verdict-dot" id="verdictDot">●</div>
         <div class="verdict-text">

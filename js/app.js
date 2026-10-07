@@ -7,12 +7,19 @@ import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow } from './w
 import { fetchBiotope } from './osm.js';
 import { fetchForestTrees } from './inat.js';
 import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores } from './scoring.js';
+import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
 let state = null;
 let chartInstance = null;
 let radarChartInstance = null;
 let forecastDays = []; // cached for modal access on card click
 let forecastView = 'cards'; // 'cards' | 'calendar'
+let scoringMode = 'classic'; // 'classic' | 'mdi'
+
+/** Вернуть активную scoring-функцию по текущему режиму. */
+function getScoreFn() {
+  return scoringMode === 'mdi' ? scoreFromConditionsMDI : scoreFromConditions;
+}
 
 /**
  * Given a day's trip date and a trigger window (fetchTriggerWindow result),
@@ -42,6 +49,14 @@ function computeTriggerConditions(day, triggerWindow) {
  * Max raw = 75 pts (25+25+15+10), scaled to 0–100.
  */
 function quickHealthScore(soilM, soilT, tMax, tMin, frostInLast7Days, speciesKey) {
+  if (scoringMode === 'mdi') {
+    // MDI health: передаём нейтральные дождь (25мм, всегда в норме) и дату null
+    // Это отражает "насколько хорошо волне прямо сейчас" без сезонного фактора
+    const c = { soilT, soilM, rain10d: 25, date: null, frostInLast7Days };
+    const raw = scoreFromConditionsMDI(c, speciesKey);
+    return raw !== null ? raw : 50;
+  }
+  // Классический вариант
   const S = (speciesKey && CONFIG.speciesConfig?.[speciesKey]?.scoring)
     ? CONFIG.speciesConfig[speciesKey].scoring
     : CONFIG.scoring;
@@ -571,7 +586,7 @@ function renderLocationComparison() {
     </div>`;
 
     const general  = projectDayScore(w.hist, w.fc, 0);
-    const spScores = loc.species?.length ? projectSpeciesScores(w.hist, w.fc, 0, loc.species) : [];
+    const spScores = loc.species?.length ? projectSpeciesScores(w.hist, w.fc, 0, loc.species, getScoreFn()) : [];
     const best     = spScores[0] || null;
     const health   = best ? quickHealthScore(general.soilM, general.soilT, w.fc.tMax[0], w.fc.tMin[0], general.frostInLast7Days, best.species) : null;
     const score    = best ? Math.round(Math.sqrt(best.score * health)) : general.score;
@@ -581,7 +596,7 @@ function renderLocationComparison() {
     const fcLen3 = Math.min(5, w.fc.dates.length);
     const fcDots = Array.from({ length: fcLen3 }, (_, i) => {
       const g2  = projectDayScore(w.hist, w.fc, i);
-      const sp2 = loc.species?.length ? projectSpeciesScores(w.hist, w.fc, i, loc.species) : [];
+      const sp2 = loc.species?.length ? projectSpeciesScores(w.hist, w.fc, i, loc.species, getScoreFn()) : [];
       const b2  = sp2[0];
       const h2  = b2 ? quickHealthScore(g2.soilM, g2.soilT, w.fc.tMax[i], w.fc.tMin[i], g2.frostInLast7Days, b2.species) : null;
       const s2  = b2 ? Math.round(Math.sqrt(b2.score * h2)) : g2.score;
@@ -742,7 +757,7 @@ function renderDashboard() {
 
   const todayScore = projectDayScore(w.hist, w.fc, 0);
   const todaySpeciesScores = loc.species?.length
-    ? projectSpeciesScores(w.hist, w.fc, 0, loc.species)
+    ? projectSpeciesScores(w.hist, w.fc, 0, loc.species, getScoreFn())
     : [];
 
   // Forecast: per day, blend lag-shifted trigger score with current conditions score.
@@ -752,7 +767,7 @@ function renderDashboard() {
   const nextDays = Array.from({ length: fcLen }, (_, i) => {
     const general = projectDayScore(w.hist, w.fc, i);
     if (!loc.species?.length) return { ...general, hint: null };
-    const shifted = projectSpeciesScores(w.hist, w.fc, i, loc.species);
+    const shifted = projectSpeciesScores(w.hist, w.fc, i, loc.species, getScoreFn());
     if (!shifted.length) return { ...general, hint: null, allSpecies: [] };
     // Per-species blend: √(triggerScore × healthScore), health uses species-specific thresholds
     const blended = shifted.map(sp => {
@@ -1786,6 +1801,16 @@ function renderAll() {
 }
 
 // Expose for inline onclick= handlers
+function setAlgoMode(mode) {
+  if (mode !== 'classic' && mode !== 'mdi') return;
+  scoringMode = mode;
+  // Обновить кнопки переключателя
+  document.querySelectorAll('.asw-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  renderDashboard();
+}
+
 window.app = {
   setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope, syncForestType,
   openDayForm, saveDay, deleteDay, syncHistoricalForDay,
@@ -1796,7 +1821,8 @@ window.app = {
   exportJson, openImportModal, doImport, doLogout,
   closeModal, showToast, showForecastModal,
   setPatternRef,
-  toggleForecastView
+  toggleForecastView,
+  setAlgoMode
 };
 
 // Boot
