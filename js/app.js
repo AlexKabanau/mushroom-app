@@ -1106,13 +1106,13 @@ function renderDashboard() {
             ticks: { display: false }  // скрываем — лейблы будут только на нижнем графике
           },
           y: {
-            min: 0, max: 100,
+            min: 0, max: 110,
             position: 'left',
             grid: { color: gridColor },
             ticks: {
               font: { size: 11 }, color: tickColor,
               stepSize: 25,
-              callback: v => v === 0 ? '' : v
+              callback: v => (v === 0 || v > 100) ? '' : v
             }
           }
         },
