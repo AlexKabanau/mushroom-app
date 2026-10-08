@@ -1136,12 +1136,9 @@ function renderDashboard() {
   }
 
   // ── Нижний график: WEATHER ──────────────────────────────────────────────────
-  // rAF: ждём один кадр браузера, чтобы canvas получил правильные размеры от CSS
-  requestAnimationFrame(() => {
   try {
   const ctx = document.getElementById('chart')?.getContext('2d');
-  if (!ctx) return;
-  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  if (!ctx) throw new Error('canvas #chart не найден');
   chartInstance = new Chart(ctx, {
       type: 'bar',
       data: {
@@ -1204,8 +1201,13 @@ function renderDashboard() {
       },
       plugins: [todayLinePlugin]
     });
-  } catch (e) { console.error('[weather chart]', e); }
-  }); // end requestAnimationFrame
+    // rAF: принудительный resize после первого paint — исправляет blank-chart при box-sizing
+    requestAnimationFrame(() => { if (chartInstance) chartInstance.resize(); });
+  } catch (e) {
+    console.error('[weather chart]', e);
+    const wrap = document.querySelector('.chart-weather-wrap');
+    if (wrap) wrap.innerHTML = `<div style="padding:16px;font-size:12px;color:#B45441">⚠️ Не удалось построить график: ${e.message}</div>`;
+  }
 
 }
 
