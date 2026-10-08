@@ -712,13 +712,14 @@ function renderForecastGrid(w) {
       if (!r) return '';
       const dt = new Date(d);
       const speciesLabel = r.bestSpecies ? `<div class="day-species">${r.bestSpecies}</div>` : '';
+      const waveLabel = r.waveTag ? `<div class="wave-tag ${r.waveTag.cls}">${r.waveTag.text}</div>` : '';
       return `<div class="day ${r.status}${i === 0 ? ' today' : ''} day-clickable" onclick="window.app.showForecastModal(${i})">
         <div class="day-weekday">${weekdays[dt.getDay()]}</div>
         <div class="day-date">${dt.getDate()}.${String(dt.getMonth() + 1).padStart(2, '0')}${i === 0 ? ' · сег.' : ''}</div>
         <div class="day-score">${r.score}</div>
         <div class="day-temp">${w.fc.tMax[i].toFixed(0)}°/${w.fc.tMin[i].toFixed(0)}° · Tп ${r.soilT}°</div>
         <div class="day-rain">💧 ${w.fc.rain[i]} мм</div>
-        ${speciesLabel}
+        ${waveLabel}${speciesLabel}
       </div>`;
     }).join('');
     return;
@@ -851,10 +852,17 @@ function renderDashboard() {
     }).sort((a, b) => b.score - a.score);
     const best = blended[0];
     const hint = buildForecastHint(best.triggerScore, best.healthScore, best.species, best.lag);
+    // waveTag — видимый индикатор состояния волны на карточке
+    const tS = statusFromScore(best.triggerScore);
+    const hS = statusFromScore(best.healthScore);
+    let waveTag = null;
+    if (tS === 'green' && hS === 'red')    waveTag = { text: '🌊 спад',    cls: 'wave-decline' };
+    else if (tS === 'green' && hS === 'yellow') waveTag = { text: '🌊 затухает', cls: 'wave-fading' };
+    else if (tS === 'green' && hS === 'green')  waveTag = { text: '🌊 пик',     cls: 'wave-peak' };
     // generalScore = условия без лага и с rain gate — используется для линии графика
-    // (чтобы не было скачка на границе факт/прогноз)
     return { ...general, score: best.score, generalScore: general.score,
-             status: best.status, bestSpecies: best.species, allSpecies: blended, hint };
+             status: best.status, bestSpecies: best.species, allSpecies: blended,
+             hint, triggerScore: best.triggerScore, healthScore: best.healthScore, waveTag };
   });
 
   forecastDays = nextDays; // store for click-modal access
