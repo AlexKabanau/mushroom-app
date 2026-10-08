@@ -851,8 +851,10 @@ function renderDashboard() {
     }).sort((a, b) => b.score - a.score);
     const best = blended[0];
     const hint = buildForecastHint(best.triggerScore, best.healthScore, best.species, best.lag);
-    return { ...general, score: best.score, status: best.status, bestSpecies: best.species,
-             allSpecies: blended, hint };
+    // generalScore = условия без лага и с rain gate — используется для линии графика
+    // (чтобы не было скачка на границе факт/прогноз)
+    return { ...general, score: best.score, generalScore: general.score,
+             status: best.status, bestSpecies: best.species, allSpecies: blended, hint };
   });
 
   forecastDays = nextDays; // store for click-modal access
@@ -993,7 +995,10 @@ function renderDashboard() {
     const spScores = loc.species?.length ? loc.species.map(sp => scoreFn(c, sp)).filter(s => s !== null) : [];
     return spScores.length ? Math.max(...spScores) : scoreFn(c, null);
   });
-  const scoreFc = [...Array(histLen).fill(null), ...forecastDays.map(d => d.score ?? null)];
+  // Для линии графика используем generalScore (условия с rain gate, без лага) —
+  // это та же формула что и у исторической линии, скачка на границе факт/прогноз нет.
+  // Лаговый score (best.score) остаётся в карточках прогноза и вердикте.
+  const scoreFc = [...Array(histLen).fill(null), ...forecastDays.map(d => d.generalScore ?? d.score ?? null)];
   const scoreHistPadded = [...scoreHist, ...Array(fcLen2).fill(null)];
 
   const ctx = document.getElementById('chart').getContext('2d');
