@@ -1,11 +1,91 @@
 /**
- * iNaturalist API — fetch tree species observed near a location.
+ * iNaturalist API — fetch tree species and mushroom observations near a location.
  * Uses the /v1/observations/species_counts endpoint (public, CORS-enabled).
- *
- * Filters by iconic_taxa=Plantae, quality_grade=research,
- * then client-side-filters to known tree genera for Belarus / Central Europe.
  */
 
+/**
+ * Mapping: config species key → canonical iNaturalist taxon name.
+ * Used to match /v1/observations/species_counts results client-side.
+ */
+const MUSHROOM_TAXA = {
+  'белый':              'Boletus edulis',
+  'подосиновик':        'Leccinum versipelle',
+  'подберёзовик':       'Leccinum scabrum',
+  'лисичка':            'Cantharellus cibarius',
+  'маслёнок':           'Suillus luteus',
+  'рыжик':              'Lactarius deliciosus',
+  'опёнок':             'Armillaria mellea',
+  'волнушка':           'Lactarius torminosus',
+  'моховик':            'Imleria badia',
+  'груздь настоящий':   'Lactarius resimus',
+  'чёрный груздь':      'Lactarius necator',
+  'сыроежка':           'Russula',
+  'груздь дубовый':     'Lactarius zonarius',
+};
+
+/**
+ * Fetch recent research-grade mushroom observations near (lat, lon).
+ * Returns array of { species (config key), taxon, count } for species with count > 0,
+ * sorted by count desc.
+ *
+ * Uses /v1/observations/species_counts with iconic_taxa=Fungi, one API call total.
+ */
+export async function fetchMushroomObservations(lat, lon, speciesList, radiusKm = 80, daysBack = 10) {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - daysBack);
+  const d1 = start.toISOString().slice(0, 10);
+  const d2 = end.toISOString().slice(0, 10);
+
+  const url = new URL('https://api.inaturalist.org/v1/observations/species_counts');
+  url.searchParams.set('lat', lat.toFixed(5));
+  url.searchParams.set('lng', lon.toFixed(5));
+  url.searchParams.set('radius', radiusKm);
+  url.searchParams.set('quality_grade', 'research');
+  url.searchParams.set('iconic_taxa', 'Fungi');
+  url.searchParams.set('d1', d1);
+  url.searchParams.set('d2', d2);
+  url.searchParams.set('per_page', 200);
+
+  const res = await fetch(url.toString(), { cache: 'no-cache' }).then(r => r.json());
+  const results = res.results || [];
+
+  // Build lookup: taxon name (lower) → count
+  const byName = new Map();
+  for (const r of results) {
+    if (!r.taxon) continue;
+    byName.set(r.taxon.name.toLowerCase(), { count: r.count, taxon: r.taxon.name, id: r.taxon.id });
+    // Also index without author (some names have substrings)
+  }
+
+  // Match our species list
+  const mapped = [];
+  for (const sp of speciesList) {
+    const latin = MUSHROOM_TAXA[sp];
+    if (!latin) continue;
+    const entry = byName.get(latin.toLowerCase());
+    if (entry) {
+      mapped.push({ species: sp, taxon: entry.taxon, count: entry.count });
+    }
+  }
+
+  // Also include any unrecognized mushroom finds in the area (top-5 excluding matched)
+  const matchedTaxa = new Set(mapped.map(m => m.taxon.toLowerCase()));
+  const extra = results
+    .filter(r => r.taxon && !matchedTaxa.has(r.taxon.name.toLowerCase()))
+    .slice(0, 5)
+    .map(r => ({ species: null, taxon: r.taxon.preferred_common_name || r.taxon.name, count: r.count }));
+
+  return {
+    matched: mapped.sort((a, b) => b.count - a.count),
+    nearby: extra,
+    total: res.total_results ?? 0,
+    dateRange: `${d1} — ${d2}`,
+    radiusKm
+  };
+}
+
+// ── Tree species lookup (existing) ────────────────────────────────────────────
 // Genera considered "trees" for mushroom ecology purposes
 const TREE_GENERA = new Set([
   'pinus','picea','abies','larix','pseudotsuga',           // conifers

@@ -314,6 +314,24 @@ footer a { color: #4A7C3A; }
 .wt-soon { background: #FBF3DF; color: #7A5A1A; }
 .wt-wait { background: #F2EBDA; color: #6B5F52; }
 
+/* ===================== iNaturalist наблюдения ===================== */
+.inat-row { margin-bottom: 10px; }
+.inat-obs-btn { background: #F0F7E8; border: 1px solid #B5CFA0; color: #3A6B2A; }
+.inat-obs-btn:hover { background: #E3F1D7; }
+.inat-obs-btn:disabled { opacity: 0.5; cursor: default; }
+.inat-panel { background: white; border: 1px solid #E6DECC; border-radius: 8px;
+  padding: 14px 18px; margin-bottom: 18px; }
+.inat-panel h4 { margin: 0 0 10px; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: #8A7C6B; }
+.inat-match-row { display: flex; align-items: center; gap: 10px; font-size: 13px;
+  padding: 4px 0; border-bottom: 1px solid #F2EBDA; }
+.inat-match-row:last-child { border-bottom: none; }
+.inat-sp-name { flex: 1; color: #2D2621; font-weight: 500; }
+.inat-count { font-size: 13px; font-weight: 700; color: #3A6B2A; min-width: 24px; text-align: right; }
+.inat-taxon { font-size: 11px; color: #A09385; font-style: italic; }
+.inat-empty { color: #A09385; font-size: 13px; }
+.inat-meta { font-size: 11px; color: #A09385; margin-top: 10px; }
+
 /* ===================== Mobile tweaks ===================== */
 @media (max-width: 600px) {
   .container { padding: 16px 12px 60px; }
@@ -339,9 +357,15 @@ footer a { color: #4A7C3A; }
   nav.tabs { border-bottom-color: #3A322A; }
 
   /* Карточки и блоки */
-  .location-bar, .wave-timer, .species-breakdown-wrap,
+  .location-bar, .wave-timer, .species-breakdown-wrap, .inat-panel,
   .card, .loc-detail-wrap, .pattern-card, .forecast-day,
   .checklist, .modal, .pheno-item { background: #261F17; border-color: #3A322A; }
+
+  /* iNaturalist кнопка и панель */
+  .inat-obs-btn { background: #1A2E14; border-color: #3A6030; color: #7AC06A; }
+  .inat-obs-btn:hover { background: #1F3818; }
+  .inat-count { color: #7AC06A; }
+  .inat-match-row { border-bottom-color: #3A322A; }
 
   /* Вердикт */
   .verdict { border-color: #3A322A; }

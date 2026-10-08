@@ -5,7 +5,7 @@ import { loadLocal, saveAndSync, pullAndMerge } from './storage.js';
 import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
 import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow } from './weather.js';
 import { fetchBiotope } from './osm.js';
-import { fetchForestTrees } from './inat.js';
+import { fetchForestTrees, fetchMushroomObservations } from './inat.js';
 import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores } from './scoring.js';
 import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
@@ -1914,6 +1914,66 @@ function setAlgoMode(mode) {
   renderDashboard();
 }
 
+/**
+ * Загрузить наблюдения iNaturalist рядом с активной локацией (80 км, 10 дней).
+ * Отображает панель с количеством наблюдений по видам.
+ */
+async function loadInatObservations() {
+  const btn = document.getElementById('inatObsBtn');
+  const panel = document.getElementById('inatPanel');
+  if (!btn || !panel) return;
+
+  const loc = state.locations.find(l => l.id === state.activeLocationId) || state.locations[0];
+  if (!loc) return;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Загружаю…';
+  panel.style.display = '';
+  panel.innerHTML = '<span class="inat-empty">Запрашиваю данные iNaturalist…</span>';
+
+  try {
+    const species = loc.species?.length ? loc.species : Object.keys(CONFIG.speciesConfig || {});
+    const data = await fetchMushroomObservations(loc.lat, loc.lon, species, 80, 10);
+
+    let html = `<h4>🔭 Наблюдения iNaturalist — ${data.radiusKm} км, ${data.dateRange}</h4>`;
+
+    if (data.matched.length > 0) {
+      html += `<div style="margin-bottom:10px">`;
+      for (const m of data.matched) {
+        const bar = Math.round((m.count / Math.max(...data.matched.map(x => x.count), 1)) * 100);
+        html += `<div class="inat-match-row">
+          <span class="inat-sp-name">${m.species}</span>
+          <span class="inat-taxon">${m.taxon}</span>
+          <span class="inat-count">${m.count}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    } else {
+      html += `<div class="inat-empty">Совпадений с вашими видами не найдено.</div>`;
+    }
+
+    if (data.nearby.length > 0) {
+      html += `<details style="margin-top:8px"><summary style="font-size:12px;color:#8A7C6B;cursor:pointer">Другие грибы в районе (${data.nearby.length})</summary>`;
+      for (const n of data.nearby) {
+        html += `<div class="inat-match-row">
+          <span class="inat-sp-name" style="font-style:italic">${n.taxon}</span>
+          <span class="inat-count">${n.count}</span>
+        </div>`;
+      }
+      html += `</details>`;
+    }
+
+    html += `<div class="inat-meta">Всего грибов в радиусе: ${data.total}. Только research-grade наблюдения.</div>`;
+    panel.innerHTML = html;
+
+  } catch (e) {
+    panel.innerHTML = `<span class="inat-empty">Ошибка: ${e.message}. Попробуйте позже.</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Наблюдения iNat (80 км / 10 дней)';
+  }
+}
+
 window.app = {
   setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope, syncForestType,
   openDayForm, saveDay, deleteDay, syncHistoricalForDay,
@@ -1925,7 +1985,8 @@ window.app = {
   closeModal, showToast, showForecastModal,
   setPatternRef,
   toggleForecastView,
-  setAlgoMode
+  setAlgoMode,
+  loadInatObservations
 };
 
 // Boot
