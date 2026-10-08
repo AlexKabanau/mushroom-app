@@ -352,6 +352,15 @@ footer a { color: #4A7C3A; }
 .inat-taxon { font-size: 11px; color: #A09385; font-style: italic; }
 .inat-empty { color: #A09385; font-size: 13px; }
 .inat-meta { font-size: 11px; color: #A09385; margin-top: 10px; }
+.inat-bar-wrap { flex: 1; height: 6px; background: #EDE5D4; border-radius: 3px; min-width: 40px; }
+.inat-bar { height: 100%; background: #4A7C3A; border-radius: 3px; min-width: 4px; }
+.inat-expand-block { margin-top: 12px; padding: 10px 12px; background: #FBF7F0;
+  border: 1px solid #E6DECC; border-radius: 6px; }
+.inat-expand-label { font-size: 12px; font-weight: 600; color: #8A7C6B; margin-bottom: 8px; }
+.inat-expand-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.inat-expand-row:last-child { margin-bottom: 0; }
+.inat-expand-hint { font-size: 12px; color: #A09385; min-width: 60px; }
+.inat-expand-btn { background: #F0F7E8; border: 1px solid #B5CFA0; color: #3A6B2A; font-size: 12px; padding: 3px 10px; }
 
 /* ===================== Mobile tweaks ===================== */
 @media (max-width: 600px) {
@@ -387,6 +396,10 @@ footer a { color: #4A7C3A; }
     & .inat-obs-btn:hover { background: #1F3818; }
     & .inat-count { color: #7AC06A; }
     & .inat-match-row { border-bottom-color: #3A322A; }
+    & .inat-bar-wrap { background: #3A322A; }
+    & .inat-bar { background: #7AC06A; }
+    & .inat-expand-block { background: #1E1810; border-color: #3A322A; }
+    & .inat-expand-btn { background: #1A2E14; border-color: #3A6030; color: #7AC06A; }
     & .verdict { border-color: #3A322A; }
     & .verdict.green { background: #1A2E14; border-color: #3A6030; }
     & .verdict.yellow { background: #2A2210; border-color: #6A5020; }
@@ -442,6 +455,10 @@ html.dark {
   & .inat-obs-btn:hover { background: #1F3818; }
   & .inat-count { color: #7AC06A; }
   & .inat-match-row { border-bottom-color: #3A322A; }
+  & .inat-bar-wrap { background: #3A322A; }
+  & .inat-bar { background: #7AC06A; }
+  & .inat-expand-block { background: #1E1810; border-color: #3A322A; }
+  & .inat-expand-btn { background: #1A2E14; border-color: #3A6030; color: #7AC06A; }
   & .verdict { border-color: #3A322A; }
   & .verdict.green { background: #1A2E14; border-color: #3A6030; }
   & .verdict.yellow { background: #2A2210; border-color: #6A5020; }

@@ -951,8 +951,18 @@ function renderDashboard() {
   renderForecastToggle();
 
   // ── Два графика: Score (верхний) + Weather (нижний) ─────────────────────────
+  // Destroy + replace canvas elements (Chart.js плохо переиспользует старые canvas)
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
   if (chartScoreInstance) { chartScoreInstance.destroy(); chartScoreInstance = null; }
+  // Пересоздаём canvas чтобы избежать stale dimensions/state
+  for (const [id, wrap] of [['chartScore', '.chart-score-wrap'], ['chart', '.chart-weather-wrap']]) {
+    const old = document.getElementById(id);
+    if (old) {
+      const c = document.createElement('canvas');
+      c.id = id;
+      old.parentNode.replaceChild(c, old);
+    }
+  }
 
   const histLen = w.hist.dates.length;
   const fcLen2  = w.fc.dates.length;
@@ -2052,10 +2062,12 @@ function setAlgoMode(mode) {
 }
 
 /**
- * Загрузить наблюдения iNaturalist рядом с активной локацией (5 км, 10 дней).
- * Отображает панель с количеством наблюдений по видам.
+ * Загрузить наблюдения iNaturalist рядом с активной локацией.
+ * При 0 результатов — показывает кнопки расширения радиуса и периода.
+ * @param {number} radius  Радиус поиска в км (по умолчанию 5)
+ * @param {number} days    Период поиска в днях (по умолчанию 10)
  */
-async function loadInatObservations() {
+async function loadInatObservations(radius = 5, days = 10) {
   const btn = document.getElementById('inatObsBtn');
   const panel = document.getElementById('inatPanel');
   if (!btn || !panel) return;
@@ -2070,17 +2082,19 @@ async function loadInatObservations() {
 
   try {
     const species = loc.species?.length ? loc.species : Object.keys(CONFIG.speciesConfig || {});
-    const data = await fetchMushroomObservations(loc.lat, loc.lon, species, 5, 10);
+    const data = await fetchMushroomObservations(loc.lat, loc.lon, species, radius, days);
 
     let html = `<h4>🔭 Наблюдения iNaturalist — ${data.radiusKm} км, ${data.dateRange}</h4>`;
 
     if (data.matched.length > 0) {
       html += `<div style="margin-bottom:10px">`;
+      const maxCount = Math.max(...data.matched.map(x => x.count), 1);
       for (const m of data.matched) {
-        const bar = Math.round((m.count / Math.max(...data.matched.map(x => x.count), 1)) * 100);
+        const pct = Math.round((m.count / maxCount) * 100);
         html += `<div class="inat-match-row">
           <span class="inat-sp-name">${m.species}</span>
           <span class="inat-taxon">${m.taxon}</span>
+          <div class="inat-bar-wrap"><div class="inat-bar" style="width:${pct}%"></div></div>
           <span class="inat-count">${m.count}</span>
         </div>`;
       }
@@ -2101,13 +2115,35 @@ async function loadInatObservations() {
     }
 
     html += `<div class="inat-meta">Всего грибов в радиусе: ${data.total}. Только research-grade наблюдения.</div>`;
+
+    // Если совсем ничего нет — предлагаем расширить
+    if (data.total === 0) {
+      html += `<div class="inat-expand-block">
+        <div class="inat-expand-label">Ничего не найдено. Расширить поиск?</div>
+        <div class="inat-expand-row">
+          <span class="inat-expand-hint">📍 Радиус:</span>`;
+      for (const r of [15, 30, 50]) {
+        if (r > radius) {
+          html += `<button class="btn sm inat-expand-btn" onclick="window.app.loadInatObservations(${r},${days})">${r} км</button>`;
+        }
+      }
+      html += `</div><div class="inat-expand-row">
+          <span class="inat-expand-hint">📅 Период:</span>`;
+      for (const d of [20, 30]) {
+        if (d > days) {
+          html += `<button class="btn sm inat-expand-btn" onclick="window.app.loadInatObservations(${radius},${d})">${d} дн</button>`;
+        }
+      }
+      html += `</div></div>`;
+    }
+
     panel.innerHTML = html;
 
   } catch (e) {
     panel.innerHTML = `<span class="inat-empty">Ошибка: ${e.message}. Попробуйте позже.</span>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = '🔍 Наблюдения iNat (80 км / 10 дней)';
+    btn.textContent = `🔍 Наблюдения iNat (${radius} км / ${days} дней)`;
   }
 }
 
