@@ -4,6 +4,86 @@
  */
 
 /**
+ * Русские названия грибов по латинскому имени.
+ * Используется для отображения nearby видов из iNaturalist.
+ */
+const MUSHROOM_RU_NAMES = {
+  // Благородные
+  'Boletus edulis':             'Белый гриб (боровик)',
+  'Boletus pinophilus':         'Белый гриб сосновый',
+  'Boletus reticulatus':        'Белый гриб дубовый',
+  'Boletus aereus':             'Белый гриб чёрный',
+  'Leccinum versipelle':        'Подосиновик жёлто-бурый',
+  'Leccinum aurantiacum':       'Подосиновик красный',
+  'Leccinum scabrum':           'Подберёзовик обыкновенный',
+  'Cantharellus cibarius':      'Лисичка обыкновенная',
+  'Craterellus cornucopioides': 'Лисичка чёрная (трубчатая)',
+  'Suillus luteus':             'Маслёнок поздний',
+  'Suillus granulatus':         'Маслёнок зернистый',
+  'Lactarius deliciosus':       'Рыжик',
+  'Armillaria mellea':          'Опёнок осенний',
+  'Armillaria ostoyae':         'Опёнок тёмный',
+  'Flammulina velutipes':       'Опёнок зимний (фламмулина)',
+  'Lactarius torminosus':       'Волнушка розовая',
+  'Imleria badia':              'Моховик бурый',
+  'Xerocomus subtomentosus':    'Моховик зелёный',
+  'Xerocomellus chrysenteron':  'Моховик трещиноватый',
+  'Lactarius resimus':          'Груздь настоящий',
+  'Lactarius necator':          'Груздь чёрный (чернушка)',
+  'Lactarius zonarius':         'Груздь дубовый',
+  'Russula':                    'Сыроежка',
+  'Morchella esculenta':        'Сморчок настоящий',
+  'Morchella':                  'Сморчок',
+  'Hydnum repandum':            'Ежовик жёлтый',
+  'Macrolepiota procera':       'Гриб-зонтик пёстрый',
+  'Agaricus campestris':        'Шампиньон луговой',
+  'Agaricus sylvaticus':        'Шампиньон лесной',
+  'Pleurotus ostreatus':        'Вёшенка обыкновенная',
+  // Частые в Беларуси
+  'Amanita muscaria':           'Мухомор красный',
+  'Amanita phalloides':         'Бледная поганка',
+  'Amanita citrina':            'Мухомор лимонный',
+  'Amanita rubescens':          'Мухомор серо-розовый (жемчужный)',
+  'Amanita fulva':              'Мухомор жёлто-коричневый',
+  'Lycoperdon perlatum':        'Дождевик жемчужный',
+  'Lycoperdon pyriforme':       'Дождевик грушевидный',
+  'Calvatia gigantea':          'Головач гигантский',
+  'Coprinus comatus':           'Навозник белый',
+  'Coprinopsis atramentaria':   'Навозник серый',
+  'Hypholoma fasciculare':      'Ложноопёнок серно-жёлтый',
+  'Hypholoma capnoides':        'Ложноопёнок серый',
+  'Paxillus involutus':         'Свинушка тонкая',
+  'Stropharia aeruginosa':      'Строфария сине-зелёная (Verdigris)',
+  'Cortinarius':                'Паутинник',
+  'Mycena':                     'Мицена',
+  'Mycena galericulata':        'Мицена колпаковидная',
+  'Russula emetica':            'Сыроежка едкая',
+  'Russula virescens':          'Сыроежка зеленоватая',
+  'Lactarius rufus':            'Горькушка',
+  'Tylopilus felleus':          'Горчак (желчный гриб)',
+  'Fomes fomentarius':          'Трутовик настоящий',
+  'Fomitopsis betulina':        'Берёзовая губка',
+  'Trametes versicolor':        'Трутовик разноцветный',
+  'Grifola frondosa':           'Трутовик ветвистый (гриффола)',
+  'Tricholoma equestre':        'Рядовка жёлтая',
+  'Tricholoma terreum':         'Рядовка землистая',
+  'Lepista nuda':               'Рядовка фиолетовая (синеножка)',
+  'Clitocybe nebularis':        'Говорушка туманная',
+  'Galerina marginata':         'Галерина окаймлённая (ядовитая!)',
+};
+
+/** Получить русское название гриба по латинскому или по английскому common name */
+function getMushroomRuName(latinName, commonNameEn) {
+  // Exact Latin match
+  if (MUSHROOM_RU_NAMES[latinName]) return MUSHROOM_RU_NAMES[latinName];
+  // Partial match by genus (e.g. "Cortinarius sp.")
+  const genus = latinName.split(' ')[0];
+  if (MUSHROOM_RU_NAMES[genus]) return MUSHROOM_RU_NAMES[genus];
+  // Fallback: English common name if available, otherwise Latin
+  return commonNameEn || latinName;
+}
+
+/**
  * Mapping: config species key → canonical iNaturalist taxon name.
  * Used to match /v1/observations/species_counts results client-side.
  */
@@ -74,7 +154,11 @@ export async function fetchMushroomObservations(lat, lon, speciesList, radiusKm 
   const extra = results
     .filter(r => r.taxon && !matchedTaxa.has(r.taxon.name.toLowerCase()))
     .slice(0, 5)
-    .map(r => ({ species: null, taxon: r.taxon.preferred_common_name || r.taxon.name, count: r.count }));
+    .map(r => ({
+      species: null,
+      taxon: getMushroomRuName(r.taxon.name, r.taxon.preferred_common_name),
+      count: r.count
+    }));
 
   return {
     matched: mapped.sort((a, b) => b.count - a.count),

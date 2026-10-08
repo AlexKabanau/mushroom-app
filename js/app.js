@@ -950,12 +950,30 @@ function renderDashboard() {
   renderForecastGrid(w);
   renderForecastToggle();
 
+  // ── Location comparison, Radar, Pattern forecast ────────────────────────────
+  renderLocationComparison();
+  try { renderRadarChart(w, loc); } catch (e) { console.error('[radar]', e); }
+  try { renderPatternForecast(w); } catch (e) { console.error('[pattern]', e); }
+
+  // ── Чеклист (ДО графиков — чтобы рендерился даже при ошибке Chart.js) ───────
+  const checks = [
+    { ok: sumClass === 'ok', title: `Σ осадков за 10 дней: ${todayScore.rain10d} мм`, note: 'Норма 15–40 мм для осеннего слоя.' },
+    { ok: smClass === 'ok', title: `Влажность почвы: ${todayScore.soilM}`, note: 'Оптимум 0,25–0,40 м³/м³.' },
+    { ok: stClass === 'ok', title: `Температура почвы: ${todayScore.soilT} °C`, note: 'Окно 8–14 °C для осеннего плодоношения.' },
+    { ok: triggered, title: triggered ? 'Холодный толчок сработал' : 'Холодный толчок не ясен', note: 'Нужно резкое похолодание + возврат тепла.' }
+  ];
+  document.getElementById('checklist').innerHTML = checks.map(c => `
+    <div class="check-row ${c.ok ? 'ok' : 'warn'}">
+      <div class="check-mark">${c.ok ? '✓' : '!'}</div>
+      <div class="check-text"><strong>${c.title}</strong><span>${c.note}</span></div>
+    </div>`).join('');
+
   // ── Два графика: Score (верхний) + Weather (нижний) ─────────────────────────
   // Destroy + replace canvas elements (Chart.js плохо переиспользует старые canvas)
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
   if (chartScoreInstance) { chartScoreInstance.destroy(); chartScoreInstance = null; }
   // Пересоздаём canvas чтобы избежать stale dimensions/state
-  for (const [id, wrap] of [['chartScore', '.chart-score-wrap'], ['chart', '.chart-weather-wrap']]) {
+  for (const id of ['chartScore', 'chart']) {
     const old = document.getElementById(id);
     if (old) {
       const c = document.createElement('canvas');
@@ -1118,9 +1136,13 @@ function renderDashboard() {
   }
 
   // ── Нижний график: WEATHER ──────────────────────────────────────────────────
+  // rAF: ждём один кадр браузера, чтобы canvas получил правильные размеры от CSS
+  requestAnimationFrame(() => {
+  try {
   const ctx = document.getElementById('chart')?.getContext('2d');
-  if (ctx) {
-    chartInstance = new Chart(ctx, {
+  if (!ctx) return;
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  chartInstance = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: allLabels,
@@ -1182,29 +1204,9 @@ function renderDashboard() {
       },
       plugins: [todayLinePlugin]
     });
-  }
+  } catch (e) { console.error('[weather chart]', e); }
+  }); // end requestAnimationFrame
 
-  // Location comparison
-  renderLocationComparison();
-
-  // Radar chart
-  renderRadarChart(w, loc);
-
-  // Pattern forecast
-  renderPatternForecast(w);
-
-  // Checklist
-  const checks = [
-    { ok: sumClass === 'ok', title: `Σ осадков за 10 дней: ${todayScore.rain10d} мм`, note: 'Норма 15–40 мм для осеннего слоя.' },
-    { ok: smClass === 'ok', title: `Влажность почвы: ${todayScore.soilM}`, note: 'Оптимум 0,25–0,40 м³/м³.' },
-    { ok: stClass === 'ok', title: `Температура почвы: ${todayScore.soilT} °C`, note: 'Окно 8–14 °C для осеннего плодоношения.' },
-    { ok: triggered, title: triggered ? 'Холодный толчок сработал' : 'Холодный толчок не ясен', note: 'Нужно резкое похолодание + возврат тепла.' }
-  ];
-  document.getElementById('checklist').innerHTML = checks.map(c => `
-    <div class="check-row ${c.ok ? 'ok' : 'warn'}">
-      <div class="check-mark">${c.ok ? '✓' : '!'}</div>
-      <div class="check-text"><strong>${c.title}</strong><span>${c.note}</span></div>
-    </div>`).join('');
 }
 
 // =========================
