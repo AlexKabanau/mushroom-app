@@ -83,10 +83,20 @@ export function scoreFromConditionsMDI(c, speciesKey = null) {
 
   // 5. Модификаторы
   let shockBonus = 1.0;
-  if (specCfg?.specialRule === 'frost' && c.frostInLast7Days) {
-    shockBonus = 1.35; // триггер опёнка: заморозок
+
+  // Cold Shock ΔT (правило Василькова): ΔT ≥ 4.5°C, tMean ∈ [7, 14]°C, soilM ≥ 0.24
+  // c.coldShockDelta передаётся из projectDayScore
+  if ((c.coldShockDelta ?? 0) >= 4.5) {
+    const tMean = c.tMax != null && c.tMin != null ? (c.tMax + c.tMin) / 2 : null;
+    if (tMean !== null && tMean >= 7 && tMean <= 14 && c.soilM >= 0.24) {
+      // Бонус 0..+40% пропорционально силе толчка выше 4.5°C
+      shockBonus += 0.40 * Math.min(1.0, (c.coldShockDelta - 4.5) / 4.0);
+    }
   }
-  // Cold Shock ΔT (правило Василькова): требует скользящих температур → доработка в v2.1
+
+  if (specCfg?.specialRule === 'frost' && c.frostInLast7Days) {
+    shockBonus = Math.max(shockBonus, 1.35); // триггер опёнка: заморозок
+  }
 
   // 6. Мультипликативное физиологическое ядро
   const physCore = tSoilFactor * mSoilFactor * rainFactor;

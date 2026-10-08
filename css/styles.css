@@ -187,6 +187,7 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .sb-score { min-width: 36px; text-align: center; flex-shrink: 0; }
 .sb-lag { font-size: 11px; color: #8A7C6B; flex-shrink: 0; }
 .sb-peak { display: inline-block; margin-left: 5px; font-size: 10px; background: #D29A3C; color: white; padding: 1px 5px; border-radius: 8px; vertical-align: middle; font-weight: 600; }
+.sb-alt { font-size: 11px; color: #8A7C6B; flex-shrink: 0; white-space: nowrap; }
 @media (max-width: 600px) { .sb-lag { display: none; } .sb-name { width: 110px; } }
 
 /* Score preview in form */

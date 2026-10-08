@@ -822,6 +822,11 @@ function renderDashboard() {
   const todaySpeciesScores = loc.species?.length
     ? projectSpeciesScores(w.hist, w.fc, 0, loc.species, getScoreFn())
     : [];
+  // Всегда вычисляем альтернативный алгоритм для отображения второго балла
+  const altScoreFn = scoringMode === 'mdi' ? scoreFromConditions : scoreFromConditionsMDI;
+  const todayAltScores = loc.species?.length
+    ? projectSpeciesScores(w.hist, w.fc, 0, loc.species, altScoreFn)
+    : [];
 
   // Forecast: per day, blend lag-shifted trigger score with current conditions score.
   // Final = √(triggerScore × currentScore) — both need to be good for a truly green day.
@@ -915,15 +920,21 @@ function renderDashboard() {
       speciesEl.style.display = 'none';
     } else {
       speciesEl.style.display = '';
+      const altLabel = scoringMode === 'mdi' ? 'Кл' : 'MDI';
       speciesEl.innerHTML = `<h3 style="margin-top:0;margin-bottom:12px">Виды сегодня</h3>` +
         todaySpeciesScores.map(s => {
           const cfg = CONFIG.speciesConfig?.[s.species];
           const lagNote = cfg?.lagDays ? `<span class="sb-lag">ждать ~${cfg.lagDays} дн от дождя</span>` : '';
           const peakBadge = s.isPeak ? `<span class="sb-peak">пик</span>` : '';
+          const altEntry = todayAltScores.find(a => a.species === s.species);
+          const altBadge = altEntry != null
+            ? `<span class="sb-alt" title="${altLabel === 'MDI' ? 'MDI v2.0' : 'Классика'}">${altLabel}:${altEntry.score}</span>`
+            : '';
           return `<div class="sb-row">
             <span class="sb-name">${s.species}${peakBadge}</span>
             <div class="sb-bar"><div class="sb-fill ${s.status}" style="width:${s.score}%"></div></div>
             <span class="score-pill ${s.status} sb-score">${s.score}</span>
+            ${altBadge}
             ${lagNote}
           </div>`;
         }).join('');

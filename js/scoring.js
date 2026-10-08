@@ -143,6 +143,19 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   ].slice(-7);
   const frostInLast7Days = recentTMin.some(t => t < 0);
 
+  // Cold Shock ΔT (правило Василькова):
+  // ΔT = среднее за дни [-10..-4] минус среднее за дни [-3..0]
+  // Используем hist.tMax+tMin для вычисления tMean
+  const allTMax = [...(hist.tMax || []), ...fc.tMax.slice(0, idx + 1)];
+  const allTMin = [...(hist.tMin || []), ...fc.tMin.slice(0, idx + 1)];
+  const allTMean = allTMax.map((mx, i) => (mx + (allTMin[i] ?? mx)) / 2);
+  const endIdx = allTMean.length - 1;
+  const slice1 = allTMean.slice(Math.max(0, endIdx - 10), Math.max(0, endIdx - 3)); // дни -10..-4
+  const slice2 = allTMean.slice(Math.max(0, endIdx - 3), endIdx + 1);               // дни -3..0
+  const avg1 = slice1.length ? slice1.reduce((a, b) => a + b, 0) / slice1.length : null;
+  const avg2 = slice2.length ? slice2.reduce((a, b) => a + b, 0) / slice2.length : null;
+  const coldShockDelta = (avg1 !== null && avg2 !== null) ? parseFloat((avg1 - avg2).toFixed(1)) : 0;
+
   const conditions = {
     soilT: parseFloat(st.toFixed(1)),
     soilM: parseFloat(sm.toFixed(3)),
@@ -151,7 +164,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     tMin,
     rainToday: fc.rain[idx],
     date,
-    frostInLast7Days
+    frostInLast7Days,
+    coldShockDelta   // для MDI cold shock trigger
   };
 
   const score = scoreFromConditions(conditions, speciesKey);
@@ -161,7 +175,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     soilM: conditions.soilM,
     soilT: conditions.soilT,
     rain10d: conditions.rain10d,
-    frostInLast7Days
+    frostInLast7Days,
+    coldShockDelta: conditions.coldShockDelta
   };
 }
 
@@ -179,6 +194,18 @@ function conditionsFromHist(hist, histOffset) {
   const frostInLast7Days = hist.tMin
     .slice(Math.max(0, hIdx - 6), hIdx + 1)
     .some(t => t < 0);
+
+  // Cold Shock ΔT для исторического триггерного дня
+  let coldShockDelta = 0;
+  if (hist.tMax && hist.tMin) {
+    const allTMean = hist.tMax.map((mx, i) => (mx + (hist.tMin[i] ?? mx)) / 2);
+    const s1 = allTMean.slice(Math.max(0, hIdx - 10), Math.max(0, hIdx - 3));
+    const s2 = allTMean.slice(Math.max(0, hIdx - 3), hIdx + 1);
+    const a1 = s1.length ? s1.reduce((a, b) => a + b, 0) / s1.length : null;
+    const a2 = s2.length ? s2.reduce((a, b) => a + b, 0) / s2.length : null;
+    coldShockDelta = (a1 !== null && a2 !== null) ? parseFloat((a1 - a2).toFixed(1)) : 0;
+  }
+
   return {
     soilT: hist.soilT[hIdx],
     soilM: hist.soilM[hIdx],
@@ -187,7 +214,8 @@ function conditionsFromHist(hist, histOffset) {
     tMin: hist.tMin[hIdx],
     rainToday: hist.rain[hIdx],
     date: hist.dates[hIdx],
-    frostInLast7Days
+    frostInLast7Days,
+    coldShockDelta
   };
 }
 
@@ -224,7 +252,8 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
         tMin: fc.tMin[triggerIdx],
         rainToday: fc.rain[triggerIdx],
         date: fc.dates?.[triggerIdx] || null,
-        frostInLast7Days: base.frostInLast7Days
+        frostInLast7Days: base.frostInLast7Days,
+        coldShockDelta: base.coldShockDelta ?? 0
       };
     } else {
       // Trigger is in historical data
