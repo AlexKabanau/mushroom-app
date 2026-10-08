@@ -71,14 +71,17 @@ export function scoreFromConditionsMDI(c, speciesKey = null) {
     c.soilM, mdi.moistWilt, mdi.moistOptLow, mdi.moistOptHigh, mdi.moistSat
   );
 
-  // 4. Осадочный фактор (дождевой потолок + вымокание)
+  // 4. Осадочный фактор (затухающий API-индекс, fallback → rain10d)
+  // В MDI v2.0 используется API (Antecedent Precipitation Index, λ=0.90),
+  // который учитывает накопленную историческую влагу, а не просто сумму 10 дней.
+  const rainMetric = c.apiRain ?? c.rain10d; // API передаётся из projectDayScore
   let rainFactor = 1.0;
-  if (c.rain10d < mdi.rain10dMin) {
+  if (rainMetric < mdi.rain10dMin) {
     // Формула из спецификации: Cap = 25 + 45*(P/Pmin) → factor 0.25 + 0.75*ratio
-    rainFactor = 0.25 + 0.75 * (c.rain10d / mdi.rain10dMin);
-  } else if (c.rain10d > mdi.rain10dMax) {
+    rainFactor = 0.25 + 0.75 * (rainMetric / mdi.rain10dMin);
+  } else if (rainMetric > mdi.rain10dMax) {
     // Вымокание: мягкий спад выше максимума
-    rainFactor = Math.max(0.3, 1.0 - 0.5 * ((c.rain10d - mdi.rain10dMax) / 40));
+    rainFactor = Math.max(0.3, 1.0 - 0.5 * ((rainMetric - mdi.rain10dMax) / 40));
   }
 
   // 5. Модификаторы

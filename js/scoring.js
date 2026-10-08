@@ -136,6 +136,17 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     st = st + (tMean - st) * 0.12;
   }
 
+  // API осадков: проекция затухающего индекса вперёд от последнего исторического значения
+  // API_t = λ * API_{t-1} + P_{t-1}
+  const LAMBDA = 0.90;
+  let apiRain = hist.apiRain?.[hist.apiRain.length - 1] ?? 0;
+  // day 0: API = λ*api_yesterday + hist.rain_last
+  apiRain = LAMBDA * apiRain + (hist.rain[hist.rain.length - 1] || 0);
+  for (let i = 1; i <= idx; i++) {
+    apiRain = LAMBDA * apiRain + (fc.rain[i - 1] || 0);
+  }
+  apiRain = parseFloat(apiRain.toFixed(2));
+
   // Frost in last 7 days: check hist tMin tail + forecast up to today
   const recentTMin = [
     ...(hist.tMin ? hist.tMin.slice(-7) : []),
@@ -160,6 +171,7 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     soilT: parseFloat(st.toFixed(1)),
     soilM: parseFloat(sm.toFixed(3)),
     rain10d: parseFloat(rain10d.toFixed(1)),
+    apiRain,         // затухающий индекс осадков (λ=0.90), используется в MDI
     tMax,
     tMin,
     rainToday: fc.rain[idx],
@@ -175,6 +187,7 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     soilM: conditions.soilM,
     soilT: conditions.soilT,
     rain10d: conditions.rain10d,
+    apiRain: conditions.apiRain,
     frostInLast7Days,
     coldShockDelta: conditions.coldShockDelta
   };
@@ -210,6 +223,7 @@ function conditionsFromHist(hist, histOffset) {
     soilT: hist.soilT[hIdx],
     soilM: hist.soilM[hIdx],
     rain10d,
+    apiRain: hist.apiRain?.[hIdx] ?? rain10d,  // затухающий индекс, fallback на rain10d
     tMax: hist.tMax?.[hIdx] ?? ((hist.tMin[hIdx] ?? 0) + 8), // fallback if tMax absent
     tMin: hist.tMin[hIdx],
     rainToday: hist.rain[hIdx],
@@ -253,7 +267,8 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
         rainToday: fc.rain[triggerIdx],
         date: fc.dates?.[triggerIdx] || null,
         frostInLast7Days: base.frostInLast7Days,
-        coldShockDelta: base.coldShockDelta ?? 0
+        coldShockDelta: base.coldShockDelta ?? 0,
+        apiRain: base.apiRain ?? base.rain10d
       };
     } else {
       // Trigger is in historical data

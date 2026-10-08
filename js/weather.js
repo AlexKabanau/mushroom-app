@@ -1,6 +1,20 @@
 // Weather fetching from open-meteo (public API, CORS-enabled)
 import { CONFIG } from './config.js';
 
+/**
+ * Antecedent Precipitation Index (API) — затухающий индекс осадков.
+ * API_t = λ * API_{t-1} + P_{t-1}   (где P — осадки предыдущего дня)
+ * λ=0.90 → период полураспада ≈ 6.6 дней (суглинок, Пухович)
+ * Возвращает массив той же длины, что precipArray.
+ */
+export function computeAPIRain(precipArray, lambda = 0.90) {
+  const api = new Array(precipArray.length).fill(0);
+  for (let i = 1; i < precipArray.length; i++) {
+    api[i] = lambda * api[i - 1] + (precipArray[i - 1] || 0);
+  }
+  return api.map(v => parseFloat(v.toFixed(2)));
+}
+
 /** YYYY-MM-DD */
 function dayStr(date) {
   return date.toISOString().slice(0, 10);
@@ -25,13 +39,15 @@ export async function fetchWeather(lat, lon) {
     fetch(forecastUrl).then(r => r.json())
   ]);
 
+  const histRain = archive.daily.precipitation_sum;
   const hist = {
     dates: archive.daily.time,
-    rain: archive.daily.precipitation_sum,
+    rain: histRain,
     soilM: archive.daily.soil_moisture_7_to_28cm_mean,
     soilT: archive.daily.soil_temperature_7_to_28cm_mean,
     tMin: archive.daily.temperature_2m_min,  // нужно для определения заморозков
-    tMax: archive.daily.temperature_2m_max   // нужно для lag-shifted scoring
+    tMax: archive.daily.temperature_2m_max,  // нужно для lag-shifted scoring
+    apiRain: computeAPIRain(histRain)         // затухающий индекс λ=0.90
   };
 
   // Forecast returns past_days=1 + 14 forecast days = 15 items. We want today onwards (10 days).
