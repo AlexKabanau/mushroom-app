@@ -299,7 +299,21 @@ footer a { color: #4A7C3A; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #2D2621; color: white; padding: 10px 20px; border-radius: 24px; font-size: 13px; opacity: 0; transition: opacity 200ms; z-index: 200; pointer-events: none; }
 .toast.show { opacity: 1; }
 
-/* Mobile tweaks */
+/* ===================== Волна-таймер ===================== */
+.wave-timer { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 14px 18px; margin-bottom: 18px; }
+.wt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
+.wt-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #8A7C6B; }
+.wt-since { font-size: 12px; color: #6B5F52; }
+.wt-rows { display: flex; flex-direction: column; gap: 5px; }
+.wt-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.wt-species { flex: 1; color: #2D2621; font-weight: 500; }
+.wt-lag { font-size: 11px; color: #A09385; }
+.wt-label { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 12px; white-space: nowrap; }
+.wt-now  { background: #EDF4E4; color: #2D5A1B; }
+.wt-soon { background: #FBF3DF; color: #7A5A1A; }
+.wt-wait { background: #F2EBDA; color: #6B5F52; }
+
+/* ===================== Mobile tweaks ===================== */
 @media (max-width: 600px) {
   .container { padding: 16px 12px 60px; }
   .brand h1 { font-size: 24px; }
@@ -309,4 +323,80 @@ footer a { color: #4A7C3A; }
   .loc-detail-label { width: auto; }
   .forecast { grid-template-columns: repeat(2, 1fr); }
   .validation-table th, .validation-table td { padding: 6px 4px; font-size: 11px; }
+}
+
+/* ===================== Тёмная тема ===================== */
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
+  body { background: #1A1611; color: #EDE8DC; }
+  .container { }
+
+  /* Навигация */
+  .tab-btn { color: #A09385; }
+  .tab-btn:hover { color: #EDE8DC; }
+  .tab-btn.active { color: #E07B62; border-bottom-color: #E07B62; }
+  nav.tabs { border-bottom-color: #3A322A; }
+
+  /* Карточки и блоки */
+  .location-bar, .wave-timer, .species-breakdown-wrap,
+  .card, .loc-detail-wrap, .pattern-card, .forecast-day,
+  .checklist, .modal, .pheno-item { background: #261F17; border-color: #3A322A; }
+
+  /* Вердикт */
+  .verdict { border-color: #3A322A; }
+  .verdict.green { background: #1A2E14; border-color: #3A6030; }
+  .verdict.yellow { background: #2A2210; border-color: #6A5020; }
+  .verdict.red   { background: #2A1510; border-color: #6A3020; }
+  .verdict-text p { color: #C4B8A8; }
+  .verdict-text h2 { color: #EDE8DC; }
+
+  /* Форма и инпуты */
+  input, select, textarea { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+  input::placeholder, textarea::placeholder { color: #6B5F52; }
+
+  /* Текст */
+  .card-label, .card-note, .loc-info, .meta, .wt-lag,
+  .sb-lag, .form-hint, footer { color: #8A7C6B; }
+  .card-value { color: #EDE8DC; }
+
+  /* Светофор бары */
+  .sb-bar { background: #3A322A; }
+  .score-pill.green { background: #3A6030; }
+  .score-pill.yellow { background: #6A5020; }
+  .score-pill.red   { background: #6A3020; }
+
+  /* Прогноз */
+  .forecast-day.green { background: #1A2E14; border-color: #3A6030; }
+  .forecast-day.yellow { background: #2A2210; border-color: #6A5020; }
+  .forecast-day.red  { background: #2A1510; border-color: #6A3020; }
+
+  /* Кнопки */
+  .btn { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+  .btn:hover { background: #3A3020; }
+  .btn.primary { background: #B45441; border-color: #B45441; }
+  .btn.primary:hover { background: #A04A3A; }
+  .asw-btn { background: #2A2218; color: #A09385; }
+  .asw-btns { border-color: #4A3E30; }
+  .asw-btn:first-child { border-right-color: #4A3E30; }
+  .asw-btn.active { background: #B45441; color: white; }
+
+  /* Волна-таймер */
+  .wt-now  { background: #1A2E14; color: #7AC06A; }
+  .wt-soon { background: #2A2210; color: #C09A50; }
+  .wt-wait { background: #261F17; color: #8A7C6B; }
+
+  /* Разделители и границы */
+  .sb-row, .pattern-stat, .wt-row { border-bottom-color: #3A322A; }
+  .validation-table th, .validation-table td { border-bottom-color: #3A322A; }
+
+  /* График */
+  .chart-wrap { background: #1A1611; }
+
+  /* Модалка */
+  .modal-overlay { background: rgba(0,0,0,0.7); }
+  .checkboxes label { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+  .checkboxes label.checked { background: #3A6030; border-color: #5A9050; color: #EDE8DC; }
+
+  /* Toast */
+  .toast { background: #EDE8DC; color: #2D2621; }
 }

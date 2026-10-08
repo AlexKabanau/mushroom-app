@@ -79,6 +79,69 @@ function quickHealthScore(soilM, soilT, tMax, tMin, frostInLast7Days, speciesKey
  * currentScore = how good are conditions right now (wave freshness / current state)
  * The final score is √(trigger × current) — both matter.
  */
+/**
+ * Волна-таймер: сколько дней прошло с последнего продуктивного дождя (≥5мм),
+ * и через сколько дней ожидать волну для каждого вида локации.
+ */
+function renderWaveTimer(hist, loc) {
+  const el = document.getElementById('waveTimer');
+  if (!el || !hist?.rain?.length || !loc?.species?.length) {
+    if (el) el.style.display = 'none';
+    return;
+  }
+
+  // Найти последний день с дождём ≥5мм в истории
+  const RAIN_THRESHOLD = 5;
+  let daysSince = null;
+  for (let i = hist.rain.length - 1; i >= 0; i--) {
+    if ((hist.rain[i] || 0) >= RAIN_THRESHOLD) {
+      daysSince = hist.rain.length - 1 - i;
+      break;
+    }
+  }
+
+  if (daysSince === null) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const species = loc.species.filter(sp => CONFIG.speciesConfig?.[sp]);
+  if (!species.length) { el.style.display = 'none'; return; }
+
+  const rows = species.map(sp => {
+    const lag = CONFIG.speciesConfig[sp].lagDays ?? 7;
+    const daysToWave = lag - daysSince;
+    let label, cls;
+    if (daysToWave <= 0) {
+      label = 'волна сейчас';
+      cls = 'wt-now';
+    } else if (daysToWave <= 3) {
+      label = `через ${daysToWave} дн`;
+      cls = 'wt-soon';
+    } else {
+      label = `через ${daysToWave} дн`;
+      cls = 'wt-wait';
+    }
+    return `<div class="wt-row">
+      <span class="wt-species">${sp}</span>
+      <span class="wt-label ${cls}">${label}</span>
+      <span class="wt-lag">лаг ${lag} дн</span>
+    </div>`;
+  }).join('');
+
+  const rainDate = hist.dates?.[hist.dates.length - 1 - daysSince] || '';
+  const rainDateStr = rainDate ? new Date(rainDate).toLocaleDateString('ru', { day: 'numeric', month: 'short' }) : '';
+
+  el.style.display = '';
+  el.innerHTML = `
+    <div class="wt-header">
+      <span class="wt-title">Волна-таймер</span>
+      <span class="wt-since">дождь ≥5мм: <strong>${daysSince === 0 ? 'сегодня' : daysSince + ' дн назад'}</strong>${rainDateStr ? ` (${rainDateStr})` : ''}</span>
+    </div>
+    <div class="wt-rows">${rows}</div>
+  `;
+}
+
 function buildForecastHint(triggerScore, healthScore, speciesName, lag) {
   const tS = statusFromScore(triggerScore);
   const hS = statusFromScore(healthScore);
@@ -867,6 +930,9 @@ function renderDashboard() {
     }
   }
 
+  // Волна-таймер
+  renderWaveTimer(w.hist, loc);
+
   // Forecast grid (cards or calendar)
   renderForecastGrid(w);
   renderForecastToggle();
@@ -892,18 +958,41 @@ function renderDashboard() {
   const soilTFc   = [...Array(histLen).fill(null), ...(w.fc.soilT?.length
     ? w.fc.soilT.map(v => v != null ? parseFloat(v.toFixed(1)) : null)
     : forecastDays.map(d => d.soilT))];
+  // Score line: вычислить daily score для истории + прогноза
+  const scoreFn = getScoreFn();
+  const scoreHist = w.hist.dates.map((date, i) => {
+    const rain10d = w.hist.rain.slice(Math.max(0, i - 9), i + 1).reduce((a, b) => a + (b || 0), 0);
+    const c = {
+      soilT: w.hist.soilT[i], soilM: w.hist.soilM[i],
+      rain10d, tMax: w.hist.tMax?.[i] ?? null, tMin: w.hist.tMin[i],
+      date, frostInLast7Days: w.hist.tMin.slice(Math.max(0, i - 6), i + 1).some(t => t < 0)
+    };
+    if (c.soilT == null || c.soilM == null) return null;
+    const spScores = loc.species?.length
+      ? loc.species.map(sp => scoreFn(c, sp)).filter(s => s !== null)
+      : [];
+    return spScores.length ? Math.max(...spScores) : scoreFn(c, null);
+  });
+  const scoreFc = [
+    ...Array(histLen).fill(null),
+    ...forecastDays.map(d => d.score ?? null)
+  ];
+  const scoreHistPadded = [...scoreHist, ...Array(fcLen2).fill(null)];
+
   const ctx = document.getElementById('chart').getContext('2d');
   chartInstance = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: allLabels,
       datasets: [
-        { label: 'Осадки (факт)', data: rainHist, backgroundColor: 'rgba(141,166,214,0.75)', borderWidth: 0, yAxisID: 'y1', order: 3 },
-        { label: 'Осадки (прогноз)', data: rainFc, backgroundColor: 'rgba(141,166,214,0.30)', borderWidth: 0, yAxisID: 'y1', order: 3 },
-        { label: 'Влажн. почвы', data: soilMHist, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, order: 1 },
-        { label: 'Влажн. (прогн.)', data: soilMFc,  type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, borderDash: [4,3], order: 1 },
-        { label: 'Т почвы, °C', data: soilTHist, type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, order: 2 },
-        { label: 'Т почвы (прогн.)', data: soilTFc,  type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, borderDash: [4,3], order: 2 }
+        { label: 'Осадки (факт)', data: rainHist, backgroundColor: 'rgba(141,166,214,0.75)', borderWidth: 0, yAxisID: 'y1', order: 4 },
+        { label: 'Осадки (прогноз)', data: rainFc, backgroundColor: 'rgba(141,166,214,0.30)', borderWidth: 0, yAxisID: 'y1', order: 4 },
+        { label: 'Влажн. почвы', data: soilMHist, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, order: 2 },
+        { label: 'Влажн. (прогн.)', data: soilMFc,  type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, borderDash: [4,3], order: 2 },
+        { label: 'Т почвы, °C', data: soilTHist, type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, order: 3 },
+        { label: 'Т почвы (прогн.)', data: soilTFc,  type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, borderDash: [4,3], order: 3 },
+        { label: 'Балл (факт)', data: scoreHistPadded, type: 'line', borderColor: '#B45441', backgroundColor: 'rgba(180,84,65,0.08)', fill: true, tension: 0.35, pointRadius: 1.5, yAxisID: 'y4', borderWidth: 2.5, order: 1 },
+        { label: 'Балл (прогноз)', data: scoreFc, type: 'line', borderColor: '#B45441', backgroundColor: 'transparent', tension: 0.35, pointRadius: 1.5, yAxisID: 'y4', borderWidth: 2.5, borderDash: [4,3], order: 1 }
       ]
     },
     options: {
@@ -916,14 +1005,17 @@ function renderDashboard() {
               title: { display: true, text: 'влажн.', font: { size: 10 }, color: '#4A7C3A' } },
         y3: { type: 'linear', position: 'right', min: 0, max: 25, grid: { display: false },
               title: { display: true, text: '°C', font: { size: 10 }, color: '#D29A3C' },
-              offset: true }
+              offset: true },
+        y4: { type: 'linear', position: 'left', min: 0, max: 100, grid: { display: false },
+              title: { display: true, text: 'балл', font: { size: 10 }, color: '#B45441' },
+              offset: true,
+              ticks: { display: false } }
       },
       plugins: {
         legend: { position: 'top', align: 'end', labels: { font: { size: 11 }, boxWidth: 14, padding: 8 } },
         tooltip: {
           callbacks: {
             afterBody: (items) => {
-              // Mark where forecast starts
               const idx = items[0]?.dataIndex;
               if (idx === histLen) return ['— прогноз —'];
               return [];
