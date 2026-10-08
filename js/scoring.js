@@ -123,17 +123,28 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   const combined = histTail.concat(futureRain);
   const rain10d = combined.slice(-10).reduce((a, b) => a + b, 0);
 
-  // Project soil moisture: start from last known, each day = +rain*0.004 - 1.4mm ET
-  let sm = hist.soilM[hist.soilM.length - 1];
-  for (let i = 0; i <= idx; i++) {
-    sm = Math.max(0.15, Math.min(0.45, sm + (fc.rain[i] - 1.4) * 0.004));
+  // Soil moisture: используем реальный прогноз open-meteo если доступен,
+  // иначе проецируем от последней исторической точки
+  let sm;
+  if (fc.soilM?.[idx] != null) {
+    sm = fc.soilM[idx];
+  } else {
+    sm = hist.soilM[hist.soilM.length - 1];
+    for (let i = 0; i <= idx; i++) {
+      sm = Math.max(0.15, Math.min(0.45, sm + (fc.rain[i] - 1.4) * 0.004));
+    }
   }
 
-  // Project soil temp: lag 3-5 days behind air mean
-  let st = hist.soilT[hist.soilT.length - 1];
-  for (let i = 0; i <= idx; i++) {
-    const tMean = (fc.tMax[i] + fc.tMin[i]) / 2;
-    st = st + (tMean - st) * 0.12;
+  // Soil temp: используем реальный прогноз open-meteo если доступен
+  let st;
+  if (fc.soilT?.[idx] != null) {
+    st = fc.soilT[idx];
+  } else {
+    st = hist.soilT[hist.soilT.length - 1];
+    for (let i = 0; i <= idx; i++) {
+      const tMean = (fc.tMax[i] + fc.tMin[i]) / 2;
+      st = st + (tMean - st) * 0.12;
+    }
   }
 
   // API осадков: проекция затухающего индекса вперёд от последнего исторического значения
