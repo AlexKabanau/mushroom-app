@@ -10,7 +10,8 @@ import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList
 import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
 let state = null;
-let chartInstance = null;
+let chartInstance = null;       // weather chart (rain / soilM / soilT)
+let chartScoreInstance = null;  // score chart (верхний)
 let radarChartInstance = null;
 let forecastDays = []; // cached for modal access on card click
 let forecastView = 'cards'; // 'cards' | 'calendar'
@@ -169,6 +170,7 @@ function buildForecastHint(triggerScore, healthScore, speciesName, lag) {
 // =========================
 async function init() {
   await requireAuth();
+  initThemeToggle();
   state = loadLocal();
   state = await pullAndMerge(state);
   attachEventHandlers();
@@ -948,28 +950,31 @@ function renderDashboard() {
   renderForecastGrid(w);
   renderForecastToggle();
 
-  // Chart — combine historical (30d) + forecast (10d)
-  if (chartInstance) chartInstance.destroy();
+  // ── Два графика: Score (верхний) + Weather (нижний) ─────────────────────────
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  if (chartScoreInstance) { chartScoreInstance.destroy(); chartScoreInstance = null; }
+
   const histLen = w.hist.dates.length;
   const fcLen2  = w.fc.dates.length;
   const allLabels = [
     ...w.hist.dates.map(d => d.slice(5)),
     ...w.fc.dates.map(d => d.slice(5))
   ];
-  // Rain: hist + forecast
+
+  // Rain
   const rainHist = [...w.hist.rain, ...Array(fcLen2).fill(null)];
   const rainFc   = [...Array(histLen).fill(null), ...w.fc.rain];
-  // Soil moisture: hist + forecast (from w.fc.soilM, fallback from forecastDays)
+  // Soil moisture
   const soilMHist = [...w.hist.soilM, ...Array(fcLen2).fill(null)];
   const soilMFc   = [...Array(histLen).fill(null), ...(w.fc.soilM?.length
     ? w.fc.soilM.map(v => v != null ? parseFloat(v.toFixed(3)) : null)
     : forecastDays.map(d => d.soilM))];
-  // Soil temp: hist + forecast (from w.fc.soilT, fallback from forecastDays)
+  // Soil temp
   const soilTHist = [...w.hist.soilT, ...Array(fcLen2).fill(null)];
   const soilTFc   = [...Array(histLen).fill(null), ...(w.fc.soilT?.length
     ? w.fc.soilT.map(v => v != null ? parseFloat(v.toFixed(1)) : null)
     : forecastDays.map(d => d.soilT))];
-  // Score line: вычислить daily score для истории + прогноза
+  // Score line
   const scoreFn = getScoreFn();
   const scoreHist = w.hist.dates.map((date, i) => {
     const rain10d = w.hist.rain.slice(Math.max(0, i - 9), i + 1).reduce((a, b) => a + (b || 0), 0);
@@ -984,58 +989,190 @@ function renderDashboard() {
       : [];
     return spScores.length ? Math.max(...spScores) : scoreFn(c, null);
   });
-  const scoreFc = [
-    ...Array(histLen).fill(null),
-    ...forecastDays.map(d => d.score ?? null)
-  ];
+  const scoreFcOnly = forecastDays.map(d => d.score ?? null);
   const scoreHistPadded = [...scoreHist, ...Array(fcLen2).fill(null)];
+  const scoreFcPadded   = [...Array(histLen).fill(null), ...scoreFcOnly];
 
-  const ctx = document.getElementById('chart').getContext('2d');
-  chartInstance = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: allLabels,
-      datasets: [
-        { label: 'Осадки (факт)', data: rainHist, backgroundColor: 'rgba(141,166,214,0.75)', borderWidth: 0, yAxisID: 'y1', order: 4 },
-        { label: 'Осадки (прогноз)', data: rainFc, backgroundColor: 'rgba(141,166,214,0.30)', borderWidth: 0, yAxisID: 'y1', order: 4 },
-        { label: 'Влажн. почвы', data: soilMHist, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, order: 2 },
-        { label: 'Влажн. (прогн.)', data: soilMFc,  type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y2', borderWidth: 2, borderDash: [4,3], order: 2 },
-        { label: 'Т почвы, °C', data: soilTHist, type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, order: 3 },
-        { label: 'Т почвы (прогн.)', data: soilTFc,  type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1.5, yAxisID: 'y3', borderWidth: 2, borderDash: [4,3], order: 3 },
-        { label: 'Балл (факт)', data: scoreHistPadded, type: 'line', borderColor: '#B45441', backgroundColor: 'rgba(180,84,65,0.08)', fill: true, tension: 0.35, pointRadius: 1.5, yAxisID: 'y4', borderWidth: 2.5, order: 1 },
-        { label: 'Балл (прогноз)', data: scoreFc, type: 'line', borderColor: '#B45441', backgroundColor: 'transparent', tension: 0.35, pointRadius: 1.5, yAxisID: 'y4', borderWidth: 2.5, borderDash: [4,3], order: 1 }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 14 } },
-        y1: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: '#F2EBDA' },
-              title: { display: true, text: 'мм', font: { size: 10 }, color: '#8DA6D6' } },
-        y2: { type: 'linear', position: 'right', min: 0.15, max: 0.5, grid: { display: false },
-              title: { display: true, text: 'влажн.', font: { size: 10 }, color: '#4A7C3A' } },
-        y3: { type: 'linear', position: 'right', min: 0, max: 25, grid: { display: false },
-              title: { display: true, text: '°C', font: { size: 10 }, color: '#D29A3C' },
-              offset: true },
-        y4: { type: 'linear', position: 'left', min: 0, max: 100, grid: { display: false },
-              title: { display: true, text: 'балл', font: { size: 10 }, color: '#B45441' },
-              offset: true,
-              ticks: { display: false } }
+  // Плагин: цветные зоны score (зелёный / жёлтый / красный)
+  const scoreZonesPlugin = {
+    id: 'scoreZones',
+    beforeDraw(chart) {
+      const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
+      if (!y) return;
+      ctx.save();
+      const yRed    = y.getPixelForValue(45);
+      const yYellow = y.getPixelForValue(70);
+      ctx.fillStyle = 'rgba(180,84,65,0.07)';
+      ctx.fillRect(left, yRed, right - left, bottom - yRed);
+      ctx.fillStyle = 'rgba(210,154,60,0.07)';
+      ctx.fillRect(left, yYellow, right - left, yRed - yYellow);
+      ctx.fillStyle = 'rgba(74,124,58,0.07)';
+      ctx.fillRect(left, top, right - left, yYellow - top);
+      // Пунктирные пороговые линии
+      ctx.strokeStyle = 'rgba(74,124,58,0.30)';
+      ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(left, yYellow); ctx.lineTo(right, yYellow); ctx.stroke();
+      ctx.strokeStyle = 'rgba(210,154,60,0.30)';
+      ctx.beginPath(); ctx.moveTo(left, yRed); ctx.lineTo(right, yRed); ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  // Плагин: вертикальная линия "сегодня"
+  const todayLinePlugin = {
+    id: 'todayLine',
+    afterDraw(chart, args, opts) {
+      const ti = opts?.todayIdx;
+      if (ti == null) return;
+      const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+      const xp = x.getPixelForIndex(ti);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(xp, top); ctx.lineTo(xp, bottom); ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  const isDark = document.documentElement.classList.contains('dark') ||
+    (!document.documentElement.classList.contains('light') &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const gridColor  = isDark ? '#3A322A' : '#F0E8D8';
+  const tickColor  = isDark ? '#8A7C6B' : '#7A6E60';
+  const labelColor = isDark ? '#C4B8A8' : '#6B5F52';
+
+  // ── Верхний график: SCORE ───────────────────────────────────────────────────
+  const ctxScore = document.getElementById('chartScore')?.getContext('2d');
+  if (ctxScore) {
+    chartScoreInstance = new Chart(ctxScore, {
+      type: 'line',
+      data: {
+        labels: allLabels,
+        datasets: [
+          {
+            label: 'Балл (факт)',
+            data: scoreHistPadded,
+            borderColor: '#B45441',
+            backgroundColor: 'rgba(180,84,65,0.12)',
+            fill: true, tension: 0.35,
+            pointRadius: 0, pointHoverRadius: 4,
+            borderWidth: 2.5, order: 1
+          },
+          {
+            label: 'Балл (прогноз)',
+            data: scoreFcPadded,
+            borderColor: '#B45441',
+            backgroundColor: 'transparent',
+            tension: 0.35,
+            pointRadius: 0, pointHoverRadius: 4,
+            borderWidth: 2, borderDash: [5, 4], order: 1
+          }
+        ]
       },
-      plugins: {
-        legend: { position: 'top', align: 'end', labels: { font: { size: 11 }, boxWidth: 14, padding: 8 } },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const idx = items[0]?.dataIndex;
-              if (idx === histLen) return ['— прогноз —'];
-              return [];
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { display: false }  // скрываем — лейблы будут только на нижнем графике
+          },
+          y: {
+            min: 0, max: 100,
+            position: 'left',
+            grid: { color: gridColor },
+            ticks: {
+              font: { size: 11 }, color: tickColor,
+              stepSize: 25,
+              callback: v => v === 0 ? '' : v
+            }
+          }
+        },
+        plugins: {
+          scoreZones: {},
+          todayLine: { todayIdx: histLen },
+          legend: {
+            position: 'top', align: 'end',
+            labels: { font: { size: 11 }, boxWidth: 12, padding: 10, color: labelColor }
+          },
+          tooltip: {
+            callbacks: {
+              title: items => allLabels[items[0].dataIndex],
+              label: item => `Балл: ${item.raw ?? '—'}`
             }
           }
         }
-      }
-    }
-  });
+      },
+      plugins: [scoreZonesPlugin, todayLinePlugin]
+    });
+  }
+
+  // ── Нижний график: WEATHER ──────────────────────────────────────────────────
+  const ctx = document.getElementById('chart')?.getContext('2d');
+  if (ctx) {
+    chartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: allLabels,
+        datasets: [
+          { label: 'Осадки факт',   data: rainHist,  backgroundColor: 'rgba(100,140,210,0.70)', borderWidth: 0, yAxisID: 'yRain', order: 3 },
+          { label: 'Осадки прогноз', data: rainFc,   backgroundColor: 'rgba(100,140,210,0.28)', borderWidth: 0, yAxisID: 'yRain', order: 3 },
+          { label: 'Влажн. почвы',  data: soilMHist, type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent',
+            tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'ySM', borderWidth: 2, order: 1 },
+          { label: 'Влажн. прогн.', data: soilMFc,   type: 'line', borderColor: '#4A7C3A', backgroundColor: 'transparent',
+            tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'ySM', borderWidth: 2, borderDash: [4, 3], order: 1 },
+          { label: 'Т почвы °C',    data: soilTHist, type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent',
+            tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'yST', borderWidth: 2, order: 2 },
+          { label: 'Т почвы прогн.', data: soilTFc,  type: 'line', borderColor: '#D29A3C', backgroundColor: 'transparent',
+            tension: 0.3, pointRadius: 0, pointHoverRadius: 4, yAxisID: 'yST', borderWidth: 2, borderDash: [4, 3], order: 2 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { font: { size: 10 }, color: tickColor, maxRotation: 0, autoSkip: true, maxTicksLimit: 14 }
+          },
+          yRain: {
+            type: 'linear', position: 'left', beginAtZero: true,
+            grid: { color: gridColor },
+            ticks: { font: { size: 10 }, color: '#648CD2' },
+            title: { display: true, text: 'мм', font: { size: 10 }, color: '#648CD2' }
+          },
+          ySM: {
+            type: 'linear', position: 'right', min: 0.10, max: 0.50,
+            grid: { display: false },
+            ticks: { font: { size: 10 }, color: '#4A7C3A' },
+            title: { display: true, text: 'влажн.', font: { size: 10 }, color: '#4A7C3A' }
+          },
+          yST: {
+            type: 'linear', position: 'right', min: 0, max: 26,
+            grid: { display: false }, offset: true,
+            ticks: { font: { size: 10 }, color: '#D29A3C' },
+            title: { display: true, text: '°C', font: { size: 10 }, color: '#D29A3C' }
+          }
+        },
+        plugins: {
+          todayLine: { todayIdx: histLen },
+          legend: {
+            position: 'top', align: 'end',
+            labels: { font: { size: 11 }, boxWidth: 12, padding: 10, color: labelColor,
+              filter: item => !item.text.includes('прогн') // скрыть дублирующие легенды прогноза
+            }
+          },
+          tooltip: {
+            callbacks: {
+              title: items => allLabels[items[0].dataIndex],
+              afterBody: (items) => items[0]?.dataIndex === histLen ? ['— прогноз —'] : []
+            }
+          }
+        }
+      },
+      plugins: [todayLinePlugin]
+    });
+  }
 
   // Location comparison
   renderLocationComparison();
@@ -1915,7 +2052,7 @@ function setAlgoMode(mode) {
 }
 
 /**
- * Загрузить наблюдения iNaturalist рядом с активной локацией (80 км, 10 дней).
+ * Загрузить наблюдения iNaturalist рядом с активной локацией (5 км, 10 дней).
  * Отображает панель с количеством наблюдений по видам.
  */
 async function loadInatObservations() {
@@ -1933,7 +2070,7 @@ async function loadInatObservations() {
 
   try {
     const species = loc.species?.length ? loc.species : Object.keys(CONFIG.speciesConfig || {});
-    const data = await fetchMushroomObservations(loc.lat, loc.lon, species, 80, 10);
+    const data = await fetchMushroomObservations(loc.lat, loc.lon, species, 5, 10);
 
     let html = `<h4>🔭 Наблюдения iNaturalist — ${data.radiusKm} км, ${data.dateRange}</h4>`;
 
@@ -1974,6 +2111,43 @@ async function loadInatObservations() {
   }
 }
 
+/**
+ * Переключатель тёмной/светлой темы.
+ * Цикл: авто (системная) → тёмная → светлая → авто
+ * Сохраняется в localStorage.theme.
+ */
+function toggleTheme() {
+  const html = document.documentElement;
+  const cur = localStorage.getItem('theme'); // null | 'dark' | 'light'
+  let next;
+  if (!cur) {
+    next = 'dark';
+  } else if (cur === 'dark') {
+    next = 'light';
+  } else {
+    next = null; // авто
+  }
+  html.classList.remove('dark', 'light');
+  if (next) {
+    html.classList.add(next);
+    localStorage.setItem('theme', next);
+  } else {
+    localStorage.removeItem('theme');
+  }
+  // Обновить иконку кнопки
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = next === 'dark' ? '☀️' : next === 'light' ? '🔆' : '🌙';
+  // Перерисовать графики (цвета осей зависят от темы)
+  renderDashboard();
+}
+
+/** Синхронизировать иконку кнопки с текущим состоянием темы при загрузке. */
+function initThemeToggle() {
+  const t = localStorage.getItem('theme');
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = t === 'dark' ? '☀️' : t === 'light' ? '🔆' : '🌙';
+}
+
 window.app = {
   setActive, openLocationForm, saveLocation, deleteLocation, syncBiotope, syncForestType,
   openDayForm, saveDay, deleteDay, syncHistoricalForDay,
@@ -1986,7 +2160,8 @@ window.app = {
   setPatternRef,
   toggleForecastView,
   setAlgoMode,
-  loadInatObservations
+  loadInatObservations,
+  toggleTheme
 };
 
 // Boot

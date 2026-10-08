@@ -69,6 +69,27 @@ h3 .count { font-size: 13px; color: #8A7C6B; margin-left: 8px; font-family: inhe
 
 .chart-wrap { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 16px; height: 280px; }
 
+/* ── Двойной график ─── */
+.chart-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.chart-score-wrap {
+  background: white; border: 1px solid #E6DECC;
+  border-radius: 8px 8px 0 0; border-bottom: none;
+  padding: 14px 16px 8px;
+  height: 200px;
+  position: relative;
+}
+.chart-score-wrap::after {
+  /* метки порогов справа */
+  content: '';
+}
+.chart-weather-wrap {
+  background: white; border: 1px solid #E6DECC;
+  border-radius: 0 0 8px 8px;
+  padding: 4px 16px 14px;
+  height: 170px;
+  margin-bottom: 20px;
+}
+
 .checklist { background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 16px 20px; }
 .check-row { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; border-bottom: 1px solid #F2EBDA; }
 .check-row:last-child { border: none; }
@@ -344,84 +365,135 @@ footer a { color: #4A7C3A; }
   .validation-table th, .validation-table td { padding: 6px 4px; font-size: 11px; }
 }
 
-/* ===================== Тёмная тема ===================== */
+/* ===================== Тёмная тема =====================
+   Применяется если:
+   - Системная тёмная тема И не выбрана явная светлая (html.light)
+   - ИЛИ пользователь явно выбрал тёмную (html.dark)
+   CSS nesting поддерживается Chrome 112+, Safari 16.5+, Firefox 117+
+   ======================================================= */
+/* ---------- авто-тёмная тема (системная) ---------- */
 @media (prefers-color-scheme: dark) {
-  :root { color-scheme: dark; }
-  body { background: #1A1611; color: #EDE8DC; }
-  .container { }
+  html:not(.light) {
+    color-scheme: dark;
+    & body { background: #1A1611; color: #EDE8DC; }
+    & .tab-btn { color: #A09385; }
+    & .tab-btn:hover { color: #EDE8DC; }
+    & .tab-btn.active { color: #E07B62; border-bottom-color: #E07B62; }
+    & nav.tabs { border-bottom-color: #3A322A; }
+    & .location-bar, & .wave-timer, & .species-breakdown-wrap, & .inat-panel,
+    & .card, & .loc-detail-wrap, & .pattern-card, & .forecast-day,
+    & .checklist, & .modal, & .pheno-item { background: #261F17; border-color: #3A322A; }
+    & .inat-obs-btn { background: #1A2E14; border-color: #3A6030; color: #7AC06A; }
+    & .inat-obs-btn:hover { background: #1F3818; }
+    & .inat-count { color: #7AC06A; }
+    & .inat-match-row { border-bottom-color: #3A322A; }
+    & .verdict { border-color: #3A322A; }
+    & .verdict.green { background: #1A2E14; border-color: #3A6030; }
+    & .verdict.yellow { background: #2A2210; border-color: #6A5020; }
+    & .verdict.red   { background: #2A1510; border-color: #6A3020; }
+    & .verdict-text p { color: #C4B8A8; }
+    & .verdict-text h2 { color: #EDE8DC; }
+    & input, & select, & textarea { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+    & input::placeholder, & textarea::placeholder { color: #6B5F52; }
+    & .card-label, & .card-note, & .loc-info, & .meta, & .wt-lag,
+    & .sb-lag, & .form-hint, & footer { color: #8A7C6B; }
+    & .card-value { color: #EDE8DC; }
+    & .sb-bar { background: #3A322A; }
+    & .score-pill.green { background: #3A6030; }
+    & .score-pill.yellow { background: #6A5020; }
+    & .score-pill.red   { background: #6A3020; }
+    & .forecast-day.green { background: #1A2E14; border-color: #3A6030; }
+    & .forecast-day.yellow { background: #2A2210; border-color: #6A5020; }
+    & .forecast-day.red  { background: #2A1510; border-color: #6A3020; }
+    & .btn { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+    & .btn:hover { background: #3A3020; }
+    & .btn.primary { background: #B45441; border-color: #B45441; }
+    & .btn.primary:hover { background: #A04A3A; }
+    & .asw-btn { background: #2A2218; color: #A09385; }
+    & .asw-btns { border-color: #4A3E30; }
+    & .asw-btn:first-child { border-right-color: #4A3E30; }
+    & .asw-btn.active { background: #B45441; color: white; }
+    & .wt-now  { background: #1A2E14; color: #7AC06A; }
+    & .wt-soon { background: #2A2210; color: #C09A50; }
+    & .wt-wait { background: #261F17; color: #8A7C6B; }
+    & .sb-row, & .pattern-stat, & .wt-row { border-bottom-color: #3A322A; }
+    & .validation-table th, & .validation-table td { border-bottom-color: #3A322A; }
+    & .chart-wrap, & .chart-score-wrap, & .chart-weather-wrap { background: #1A1611; border-color: #3A322A; }
+    & .modal-overlay { background: rgba(0,0,0,0.7); }
+    & .checkboxes label { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+    & .checkboxes label.checked { background: #3A6030; border-color: #5A9050; color: #EDE8DC; }
+    & .toast { background: #EDE8DC; color: #2D2621; }
+    & .theme-toggle { color: #D29A3C; }
+  }
+}
 
-  /* Навигация */
-  .tab-btn { color: #A09385; }
-  .tab-btn:hover { color: #EDE8DC; }
-  .tab-btn.active { color: #E07B62; border-bottom-color: #E07B62; }
-  nav.tabs { border-bottom-color: #3A322A; }
+/* Ручной выбор тёмной — те же правила, без media query */
+html.dark {
+  color-scheme: dark;
+  & body { background: #1A1611; color: #EDE8DC; }
+  & .tab-btn { color: #A09385; }
+  & .tab-btn:hover { color: #EDE8DC; }
+  & .tab-btn.active { color: #E07B62; border-bottom-color: #E07B62; }
+  & nav.tabs { border-bottom-color: #3A322A; }
+  & .location-bar, & .wave-timer, & .species-breakdown-wrap, & .inat-panel,
+  & .card, & .loc-detail-wrap, & .pattern-card, & .forecast-day,
+  & .checklist, & .modal, & .pheno-item { background: #261F17; border-color: #3A322A; }
+  & .inat-obs-btn { background: #1A2E14; border-color: #3A6030; color: #7AC06A; }
+  & .inat-obs-btn:hover { background: #1F3818; }
+  & .inat-count { color: #7AC06A; }
+  & .inat-match-row { border-bottom-color: #3A322A; }
+  & .verdict { border-color: #3A322A; }
+  & .verdict.green { background: #1A2E14; border-color: #3A6030; }
+  & .verdict.yellow { background: #2A2210; border-color: #6A5020; }
+  & .verdict.red   { background: #2A1510; border-color: #6A3020; }
+  & .verdict-text p { color: #C4B8A8; }
+  & .verdict-text h2 { color: #EDE8DC; }
+  & input, & select, & textarea { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+  & input::placeholder, & textarea::placeholder { color: #6B5F52; }
+  & .card-label, & .card-note, & .loc-info, & .meta, & .wt-lag,
+  & .sb-lag, & .form-hint, & footer { color: #8A7C6B; }
+  & .card-value { color: #EDE8DC; }
+  & .sb-bar { background: #3A322A; }
+  & .score-pill.green { background: #3A6030; }
+  & .score-pill.yellow { background: #6A5020; }
+  & .score-pill.red   { background: #6A3020; }
+  & .forecast-day.green { background: #1A2E14; border-color: #3A6030; }
+  & .forecast-day.yellow { background: #2A2210; border-color: #6A5020; }
+  & .forecast-day.red  { background: #2A1510; border-color: #6A3020; }
+  & .btn { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+  & .btn:hover { background: #3A3020; }
+  & .btn.primary { background: #B45441; border-color: #B45441; }
+  & .btn.primary:hover { background: #A04A3A; }
+  & .asw-btn { background: #2A2218; color: #A09385; }
+  & .asw-btns { border-color: #4A3E30; }
+  & .asw-btn:first-child { border-right-color: #4A3E30; }
+  & .asw-btn.active { background: #B45441; color: white; }
+  & .wt-now  { background: #1A2E14; color: #7AC06A; }
+  & .wt-soon { background: #2A2210; color: #C09A50; }
+  & .wt-wait { background: #261F17; color: #8A7C6B; }
+  & .sb-row, & .pattern-stat, & .wt-row { border-bottom-color: #3A322A; }
+  & .validation-table th, & .validation-table td { border-bottom-color: #3A322A; }
+  & .chart-wrap, & .chart-score-wrap, & .chart-weather-wrap { background: #1A1611; border-color: #3A322A; }
+  & .modal-overlay { background: rgba(0,0,0,0.7); }
+  & .checkboxes label { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
+  & .checkboxes label.checked { background: #3A6030; border-color: #5A9050; color: #EDE8DC; }
+  & .toast { background: #EDE8DC; color: #2D2621; }
+  & .theme-toggle { color: #D29A3C; }
+}
 
-  /* Карточки и блоки */
-  .location-bar, .wave-timer, .species-breakdown-wrap, .inat-panel,
-  .card, .loc-detail-wrap, .pattern-card, .forecast-day,
-  .checklist, .modal, .pheno-item { background: #261F17; border-color: #3A322A; }
+/* Кнопка переключения темы */
+.theme-toggle { font-size: 15px; padding: 4px 8px; }
 
-  /* iNaturalist кнопка и панель */
-  .inat-obs-btn { background: #1A2E14; border-color: #3A6030; color: #7AC06A; }
-  .inat-obs-btn:hover { background: #1F3818; }
-  .inat-count { color: #7AC06A; }
-  .inat-match-row { border-bottom-color: #3A322A; }
-
-  /* Вердикт */
-  .verdict { border-color: #3A322A; }
-  .verdict.green { background: #1A2E14; border-color: #3A6030; }
-  .verdict.yellow { background: #2A2210; border-color: #6A5020; }
-  .verdict.red   { background: #2A1510; border-color: #6A3020; }
-  .verdict-text p { color: #C4B8A8; }
-  .verdict-text h2 { color: #EDE8DC; }
-
-  /* Форма и инпуты */
-  input, select, textarea { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
-  input::placeholder, textarea::placeholder { color: #6B5F52; }
-
-  /* Текст */
-  .card-label, .card-note, .loc-info, .meta, .wt-lag,
-  .sb-lag, .form-hint, footer { color: #8A7C6B; }
-  .card-value { color: #EDE8DC; }
-
-  /* Светофор бары */
-  .sb-bar { background: #3A322A; }
-  .score-pill.green { background: #3A6030; }
-  .score-pill.yellow { background: #6A5020; }
-  .score-pill.red   { background: #6A3020; }
-
-  /* Прогноз */
-  .forecast-day.green { background: #1A2E14; border-color: #3A6030; }
-  .forecast-day.yellow { background: #2A2210; border-color: #6A5020; }
-  .forecast-day.red  { background: #2A1510; border-color: #6A3020; }
-
-  /* Кнопки */
-  .btn { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
-  .btn:hover { background: #3A3020; }
-  .btn.primary { background: #B45441; border-color: #B45441; }
-  .btn.primary:hover { background: #A04A3A; }
-  .asw-btn { background: #2A2218; color: #A09385; }
-  .asw-btns { border-color: #4A3E30; }
-  .asw-btn:first-child { border-right-color: #4A3E30; }
-  .asw-btn.active { background: #B45441; color: white; }
-
-  /* Волна-таймер */
-  .wt-now  { background: #1A2E14; color: #7AC06A; }
-  .wt-soon { background: #2A2210; color: #C09A50; }
-  .wt-wait { background: #261F17; color: #8A7C6B; }
-
-  /* Разделители и границы */
-  .sb-row, .pattern-stat, .wt-row { border-bottom-color: #3A322A; }
-  .validation-table th, .validation-table td { border-bottom-color: #3A322A; }
-
-  /* График */
-  .chart-wrap { background: #1A1611; }
-
-  /* Модалка */
-  .modal-overlay { background: rgba(0,0,0,0.7); }
-  .checkboxes label { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
-  .checkboxes label.checked { background: #3A6030; border-color: #5A9050; color: #EDE8DC; }
-
-  /* Toast */
-  .toast { background: #EDE8DC; color: #2D2621; }
+/* Принудительная светлая тема (переопределяет системную тёмную) */
+html.light {
+  color-scheme: light;
+  & body { background: #FBF5E8 !important; color: #2D2621 !important; }
+  & .tab-btn { color: #6B5F52 !important; }
+  & .tab-btn.active { color: #B45441 !important; border-bottom-color: #B45441 !important; }
+  & .btn { background: #F2E8D4 !important; border-color: #D4C4A8 !important; color: #2D2621 !important; }
+  & input, & select, & textarea { background: white !important; border-color: #D4C4A8 !important; color: #2D2621 !important; }
+  & .location-bar, & .wave-timer, & .species-breakdown-wrap, & .inat-panel,
+  & .card, & .loc-detail-wrap, & .pattern-card, & .forecast-day,
+  & .checklist, & .modal, & .pheno-item { background: white !important; border-color: #E6DECC !important; }
+  & .chart-wrap, & .chart-score-wrap, & .chart-weather-wrap { background: white !important; border-color: #E6DECC !important; }
 }

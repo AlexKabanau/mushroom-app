@@ -11,6 +11,14 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/styles.css">
+<script>
+  // Применить тему ДО рендера, чтобы не мигало
+  (function(){
+    const t = localStorage.getItem('theme');
+    if (t === 'dark') document.documentElement.classList.add('dark');
+    else if (t === 'light') document.documentElement.classList.add('light');
+  })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -25,6 +33,7 @@
       <div><span id="locCount">—</span></div>
       <div class="meta-actions">
         <span id="syncStatus" style="font-size:11px;color:#8A7C6B"></span>
+        <button class="btn ghost theme-toggle" id="themeToggle" onclick="window.app.toggleTheme()" title="Тёмная/светлая тема">🌙</button>
         <button class="btn ghost" onclick="window.app.openSettings()">⚙</button>
       </div>
     </div>
@@ -62,7 +71,7 @@
       <div class="wave-timer" id="waveTimer" style="display:none"></div>
       <div class="species-breakdown-wrap" id="speciesBreakdown" style="display:none"></div>
       <div class="inat-row">
-        <button class="btn sm inat-obs-btn" id="inatObsBtn" onclick="window.app.loadInatObservations()">🔍 Наблюдения iNat (80 км / 10 дней)</button>
+        <button class="btn sm inat-obs-btn" id="inatObsBtn" onclick="window.app.loadInatObservations()">🔍 Наблюдения iNat (5 км / 10 дней)</button>
       </div>
       <div class="inat-panel" id="inatPanel" style="display:none"></div>
       <div id="locationCompareWrap" style="display:none;margin-bottom:18px"></div>
@@ -87,8 +96,11 @@
         <summary>Сравнение с эталонным днём</summary>
         <div id="patternForecastWrap" style="padding:8px 0"></div>
       </details>
-      <h3>Погода за 30 дней + прогноз</h3>
-      <div class="chart-wrap" style="height:240px"><canvas id="chart"></canvas></div>
+      <div class="chart-section-header">
+        <h3 style="margin:0">Погода за 30 дней + прогноз</h3>
+      </div>
+      <div class="chart-score-wrap"><canvas id="chartScore"></canvas></div>
+      <div class="chart-weather-wrap"><canvas id="chart"></canvas></div>
       <h3>Чек-лист</h3>
       <div class="checklist" id="checklist"></div>
     </section>
