@@ -1672,8 +1672,9 @@ function openSettings() {
       ${mobileStatus}
       <div id="newGistHint" style="display:none"></div>
     </div>
-    <div style="display:flex;gap:8px;margin:14px 0">
-      <button class="btn" onclick="window.app.saveSettingsAndCreateGist()">💾 Сохранить и создать Gist</button>
+    <div style="display:flex;gap:8px;margin:14px 0;flex-wrap:wrap">
+      <button class="btn" onclick="window.app.saveSettingsAndCreateGist()">💾 Сохранить настройки</button>
+      <button class="btn" onclick="window.app.pushToGist()">⬆ Записать в Gist</button>
       <button class="btn" onclick="window.app.pullFromGist()">⬇ Подтянуть из Gist</button>
     </div>
     <hr style="border:none;border-top:1px solid #E6DECC;margin:20px 0">
@@ -1714,6 +1715,19 @@ async function saveSettingsAndCreateGist() {
     showToast('Настройки сохранены — автосинк включён');
     // Don't close if newly created — let user copy the Gist ID
     if (document.getElementById('newGistHint')?.style.display === 'none') closeModal();
+  } catch (e) {
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+async function pushToGist() {
+  const token  = document.getElementById('setToken').value.trim();
+  const gistId = document.getElementById('setGistId').value.trim();
+  if (!token || !gistId) { alert('Нужны токен и Gist ID'); return; }
+  try {
+    await pushGist(token, gistId, state);
+    saveSettings({ token, gistId });
+    showToast('✅ Данные записаны в Gist');
   } catch (e) {
     alert('Ошибка: ' + e.message);
   }
@@ -2036,7 +2050,7 @@ window.app = {
   syncAllHistorical, syncAllWeather,
   previewDayScore,
   addCustomSpeciesFromInput, removeCustomSpecies,
-  openSettings, saveSettingsAndCreateGist, pullFromGist,
+  openSettings, saveSettingsAndCreateGist, pushToGist, pullFromGist,
   exportJson, openImportModal, doImport, doLogout,
   closeModal, showToast, showForecastModal,
   setPatternRef,
