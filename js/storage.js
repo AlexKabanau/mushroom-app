@@ -31,24 +31,43 @@ export function saveLocal(state) {
 }
 
 /**
- * Pull remote state from Gist and merge with local (last-write-wins by updatedAt).
- * Works without a token if the Gist is public and CONFIG.gistId is set
- * (mobile read-only access without re-entering the GitHub token).
+ * Merge two arrays by ID: start from base, add items from other that are missing.
+ * This prevents data loss when one side has newer timestamps but fewer records.
+ */
+function mergeById(base = [], other = []) {
+  const map = new Map((base).map(x => [x.id, x]));
+  for (const item of other) {
+    if (item.id && !map.has(item.id)) map.set(item.id, item);
+  }
+  return [...map.values()];
+}
+
+/**
+ * Pull remote state from Gist and merge with local.
+ * Scalar fields: last-write-wins by updatedAt.
+ * Arrays (locations, mushroomDays): union by ID — items present in either side are kept.
+ * This prevents a missed Gist push from silently erasing locally-added data.
  */
 export async function pullAndMerge(localState) {
   const { token, gistId: storedGistId } = getSettings();
-  const gistId = storedGistId || CONFIG.gistId; // fallback to hardcoded ID for mobile
-  if (!gistId) return localState;               // no Gist configured at all → skip
+  const gistId = storedGistId || CONFIG.gistId;
+  if (!gistId) return localState;
   try {
-    const remote = await pullGist(token || null, gistId); // token optional for public Gist
+    const remote = await pullGist(token || null, gistId);
     if (!remote) return localState;
-    const localTime = new Date(localState.updatedAt || 0).getTime();
-    const remoteTime = new Date(remote.updatedAt || 0).getTime();
-    if (remoteTime > localTime) {
-      saveLocal(remote);
-      return remote;
-    }
-    return localState;
+    const localTime  = new Date(localState.updatedAt || 0).getTime();
+    const remoteTime = new Date(remote.updatedAt    || 0).getTime();
+    // Base = whichever is newer (wins for scalar/settings fields)
+    const base  = remoteTime >= localTime ? remote     : localState;
+    const other = remoteTime >= localTime ? localState : remote;
+    const merged = {
+      ...base,
+      // Array union: never drop an item just because one side didn't have it
+      locations:    mergeById(base.locations    || [], other.locations    || []),
+      mushroomDays: mergeById(base.mushroomDays || [], other.mushroomDays || []),
+    };
+    saveLocal(merged);
+    return merged;
   } catch (e) {
     console.warn('Gist pull failed, using local state', e);
     return localState;
