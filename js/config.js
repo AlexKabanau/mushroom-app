@@ -34,7 +34,7 @@ export const CONFIG = {
   scoring: {
     soilT: { ok: [8, 14], fair: [5, 17] },
     soilM: { ok: [0.25, 0.4], fair: [0.2, 0.45] },
-    rain10d: { ok: [15, 40], fair: [8, 55] },
+    rain10d: { ok: [20, 55], fair: [11, 75] }, // 14-day window (×1.4 vs old 10-day)
     tMax: { ok: [10, 20], fair: [6, 24] },
     tMin: { ok: 2, fair: -2 },
     threshold: { green: 70, yellow: 45 },
@@ -52,7 +52,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [10, 15], fair: [8, 18] },
         soilM: { ok: [0.25, 0.38], fair: [0.2, 0.43] },
-        rain10d: { ok: [15, 40], fair: [10, 50] },
+        rain10d: { ok: [20, 55], fair: [14, 70] },
         tMax: { ok: [12, 20], fair: [8, 24] },
         tMin: { ok: 4, fair: 1 },
       },
@@ -71,7 +71,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 18], fair: [6, 22] },
         soilM: { ok: [0.22, 0.4], fair: [0.18, 0.45] },
-        rain10d: { ok: [12, 42], fair: [8, 52] },
+        rain10d: { ok: [17, 58], fair: [11, 72] },
         tMax: { ok: [10, 22], fair: [6, 26] },
         tMin: { ok: 3, fair: -1 },
       },
@@ -90,7 +90,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 13], fair: [6, 16] },
         soilM: { ok: [0.26, 0.4], fair: [0.2, 0.44] },
-        rain10d: { ok: [8, 45], fair: [4, 56] }, // Bielefeld: 5-10mm → 25.8% находок, порог снижен
+        rain10d: { ok: [11, 63], fair: [5, 78] }, // 14-day window; Bielefeld lag=10 confirmed, scaled ×1.4
         tMax: { ok: [12, 21], fair: [8, 24] },   // Bielefeld: rollT оптим. 9-17°C → tMax до 22
         tMin: { ok: 4, fair: 1 },
       },
@@ -109,7 +109,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [15, 22], fair: [12, 25] },
         soilM: { ok: [0.25, 0.43], fair: [0.2, 0.48] },
-        rain10d: { ok: [20, 55], fair: [13, 65] },
+        rain10d: { ok: [28, 77], fair: [18, 90] },
         tMax: { ok: [16, 24], fair: [12, 28] },
         tMin: { ok: 10, fair: 6 },
       },
@@ -128,7 +128,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [14, 20], fair: [10, 24] },
         soilM: { ok: [0.22, 0.4], fair: [0.18, 0.45] },
-        rain10d: { ok: [15, 45], fair: [10, 55] },
+        rain10d: { ok: [21, 63], fair: [14, 77] },
         tMax: { ok: [14, 22], fair: [10, 26] },
         tMin: { ok: 8, fair: 4 },
       },
@@ -147,7 +147,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [10, 16], fair: [8, 19] },
         soilM: { ok: [0.22, 0.38], fair: [0.17, 0.43] },
-        rain10d: { ok: [15, 40], fair: [10, 50] },
+        rain10d: { ok: [20, 55], fair: [14, 70] },
         tMax: { ok: [12, 20], fair: [8, 24] },
         tMin: { ok: 4, fair: 1 },
       },
@@ -166,7 +166,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [6, 14], fair: [4, 18] },
         soilM: { ok: [0.18, 0.46], fair: [0.14, 0.5] }, // широко — растёт на пнях
-        rain10d: { ok: [10, 42], fair: [6, 55] },
+        rain10d: { ok: [14, 58], fair: [8, 76] },
         tMax: { ok: [8, 16], fair: [5, 19] },
         tMin: { ok: 0, fair: -4 },
       },
@@ -186,7 +186,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 14], fair: [6, 17] },
         soilM: { ok: [0.28, 0.45], fair: [0.22, 0.5] },
-        rain10d: { ok: [20, 55], fair: [14, 65] },
+        rain10d: { ok: [28, 77], fair: [20, 90] },
         tMax: { ok: [10, 20], fair: [7, 24] },
         tMin: { ok: 4, fair: 1 },
       },
@@ -205,7 +205,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 16], fair: [6, 19] },   // джекпот при 14.6-15.9°C (сент 2026)
         soilM: { ok: [0.28, 0.46], fair: [0.22, 0.51] }, // находки при 0.29-0.30
-        rain10d: { ok: [18, 55], fair: [14, 65] }, // джекпот при 21-22мм
+        rain10d: { ok: [25, 77], fair: [20, 90] }, // 14-day window; джекпот при 21-22мм/10d → ~30мм/14d
         tMax: { ok: [10, 20], fair: [7, 24] },
         tMin: { ok: 4, fair: 1 },
       },
@@ -224,7 +224,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 14], fair: [6, 17] },
         soilM: { ok: [0.26, 0.43], fair: [0.2, 0.48] },
-        rain10d: { ok: [18, 50], fair: [12, 60] },
+        rain10d: { ok: [25, 70], fair: [17, 84] },
         tMax: { ok: [10, 20], fair: [7, 24] },
         tMin: { ok: 3, fair: 0 },
       },
@@ -243,7 +243,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [10, 18], fair: [8, 22] },
         soilM: { ok: [0.24, 0.42], fair: [0.18, 0.46] },
-        rain10d: { ok: [15, 45], fair: [10, 55] },
+        rain10d: { ok: [21, 63], fair: [14, 77] },
         tMax: { ok: [12, 22], fair: [8, 26] },
         tMin: { ok: 5, fair: 2 },
       },
@@ -262,7 +262,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [10, 16], fair: [8, 19] },
         soilM: { ok: [0.24, 0.4], fair: [0.18, 0.44] },
-        rain10d: { ok: [15, 42], fair: [10, 52] },
+        rain10d: { ok: [21, 58], fair: [14, 72] },
         tMax: { ok: [12, 20], fair: [8, 24] },
         tMin: { ok: 4, fair: 1 },
       },

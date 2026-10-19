@@ -52,7 +52,7 @@ function quickHealthScore(soilM, soilT, tMax, tMin, frostInLast7Days, speciesKey
   if (scoringMode === 'mdi') {
     // MDI health: передаём нейтральные дождь (25мм, всегда в норме) и дату null
     // Это отражает "насколько хорошо волне прямо сейчас" без сезонного фактора
-    const c = { soilT, soilM, rain10d: 25, date: null, frostInLast7Days };
+    const c = { soilT, soilM, rain10d: 35, date: null, frostInLast7Days }; // 35 = середина 14d ok-диапазона
     const raw = scoreFromConditionsMDI(c, speciesKey);
     return raw !== null ? raw : 50;
   }
@@ -599,7 +599,7 @@ function renderPatternForecast(w) {
 
   // Per-parameter comparison for reference day
   const paramRows = [
-    { label: '💧 Дождь 10д', ref: `${refCond.rain10d} мм`,     fc: `${forecastDays[0]?.rain10d ?? '?'} мм`  },
+    { label: '💧 Дождь 14д', ref: `${refCond.rain10d} мм`,     fc: `${forecastDays[0]?.rain10d ?? '?'} мм`  },
     { label: '🌱 Влажн. почвы', ref: refCond.soilM?.toFixed(2), fc: forecastDays[0]?.soilM?.toFixed(2) || '?' },
     { label: '🌍 Т почвы',   ref: `${refCond.soilT}°`,         fc: `${forecastDays[0]?.soilT ?? '?'}°` },
     { label: '🌡 Т день',    ref: `${refCond.tMax}°`,           fc: `${w.fc.tMax[0]?.toFixed(0) ?? '?'}°` },
@@ -895,11 +895,11 @@ function renderDashboard() {
   if (displayStatus === 'green') {
     const speciesNote = displaySpeciesName ? ` · <em>${displaySpeciesName}${bestSpecies.isPeak ? ' 🌟 пиковый месяц' : ''}</em>` : '';
     title = `Ехать. ${greenAhead} зелёных дня впереди`;
-    body = `Все факторы соблюдены${speciesNote}. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя за 10 дн — ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
+    body = `Все факторы соблюдены${speciesNote}. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя за 14 дн — ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
   } else if (displayStatus === 'yellow') {
     const speciesNote = displaySpeciesName ? ` · ${displaySpeciesName}` : '';
     title = `Можно, но средне${speciesNote}`;
-    body = `Условия пограничные. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
+    body = `Условия пограничные. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя 14дн ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
   } else {
     title = 'Пока не стоит';
     body = `Score сегодня ${displayScore}. Лучший день впереди: <strong>${bestLabel}</strong> (score ${bestScore}).`;
@@ -918,7 +918,7 @@ function renderDashboard() {
 
   const frostToday = todayScore.frostInLast7Days;
   document.getElementById('factorCards').innerHTML = `
-    <div class="card"><div class="card-label">Осадки / 10 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 15–40 мм</div></div>
+    <div class="card"><div class="card-label">Осадки / 14 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 20–55 мм</div></div>
     <div class="card"><div class="card-label">Влажность почвы</div><div class="card-value status-${smClass}">${todayScore.soilM.toFixed(2)}</div><div class="card-note">оптимум 0,25–0,40</div></div>
     <div class="card"><div class="card-label">Темп. почвы</div><div class="card-value status-${stClass}">${todayScore.soilT} °C</div><div class="card-note">окно 8–14 °C</div></div>
     <div class="card"><div class="card-label">Заморозок</div><div class="card-value status-${frostToday ? 'ok' : 'warn'}">${frostToday ? '❄ Был' : '—'}</div><div class="card-note">триггер опят</div></div>
@@ -966,7 +966,7 @@ function renderDashboard() {
 
   // ── Чеклист (ДО графиков — чтобы рендерился даже при ошибке Chart.js) ───────
   const checks = [
-    { ok: sumClass === 'ok', title: `Σ осадков за 10 дней: ${todayScore.rain10d} мм`, note: 'Норма 15–40 мм для осеннего слоя.' },
+    { ok: sumClass === 'ok', title: `Σ осадков за 14 дней: ${todayScore.rain10d} мм`, note: 'Норма 20–55 мм для осеннего слоя.' },
     { ok: smClass === 'ok', title: `Влажность почвы: ${todayScore.soilM}`, note: 'Оптимум 0,25–0,40 м³/м³.' },
     { ok: stClass === 'ok', title: `Температура почвы: ${todayScore.soilT} °C`, note: 'Окно 8–14 °C для осеннего плодоношения.' },
     { ok: triggered, title: triggered ? 'Холодный толчок сработал' : 'Холодный толчок не ясен', note: 'Нужно резкое похолодание + возврат тепла.' }
@@ -995,7 +995,7 @@ function renderDashboard() {
       : forecastDays.map(d => d.soilT))];
   const scoreFn = getScoreFn();
   const scoreHist = w.hist.dates.map((date, i) => {
-    const rain10d = w.hist.rain.slice(Math.max(0, i-9), i+1).reduce((a,b) => a+(b||0), 0);
+    const rain10d = w.hist.rain.slice(Math.max(0, i-13), i+1).reduce((a,b) => a+(b||0), 0);
     const c = { soilT: w.hist.soilT[i], soilM: w.hist.soilM[i], rain10d,
                 tMax: w.hist.tMax?.[i] ?? null, tMin: w.hist.tMin[i], date,
                 frostInLast7Days: w.hist.tMin.slice(Math.max(0,i-6),i+1).some(t=>t<0) };
@@ -1210,7 +1210,7 @@ async function previewDayScore(date, locId) {
     }
     box.className = `score-preview-box ${status}`;
     box.innerHTML = `<div class="score-preview-title">${emoji} ${score} баллов · ${label}</div>
-      <div class="score-preview-sub">T почвы ${c.soilT}° · влажн. ${c.soilM} · Σ10дн ${c.rain10d} мм · T возд. ${c.tMax}/${c.tMin}°</div>
+      <div class="score-preview-sub">T почвы ${c.soilT}° · влажн. ${c.soilM} · Σ14д ${c.rain10d} мм · T возд. ${c.tMax}/${c.tMin}°</div>
       ${verdictHtml}`;
   } catch(e) {
     box.className = 'score-preview-box err';
@@ -1296,7 +1296,7 @@ function renderDays() {
         ${isBlank ? `<div style="font-size:12px;color:#8A7C6B;margin-top:6px">искал (не нашёл):</div>` : ''}
         <div style="margin-top:${isBlank ? '2' : '6'}px">${(d.species || []).map(s => `<span class="pill green species-chip">${s}</span>`).join('')}</div>
         ${d.notes ? `<div class="notes">${d.notes}</div>` : ''}
-        ${d.conditions ? `<div style="margin-top:8px;font-size:11px;color:#8A7C6B;font-family:monospace">T почвы ${d.conditions.soilT}° · влажн. ${d.conditions.soilM} · Σ10дн ${d.conditions.rain10d} мм · T возд. ${d.conditions.tMax}/${d.conditions.tMin}°</div>` : '<div style="margin-top:6px"><button class="btn sm" onclick="window.app.syncHistoricalForDay(\'' + d.id + '\')">⟳ подтянуть условия</button></div>'}
+        ${d.conditions ? `<div style="margin-top:8px;font-size:11px;color:#8A7C6B;font-family:monospace">T почвы ${d.conditions.soilT}° · влажн. ${d.conditions.soilM} · Σ14д ${d.conditions.rain10d} мм · T возд. ${d.conditions.tMax}/${d.conditions.tMin}°</div>` : '<div style="margin-top:6px"><button class="btn sm" onclick="window.app.syncHistoricalForDay(\'' + d.id + '\')">⟳ подтянуть условия</button></div>'}
         ${scoreBadgeHtml}
       </div>
       <div class="right">
@@ -1454,7 +1454,7 @@ function renderPatterns() {
     <div class="pattern-grid">
       ${sStats ? `<div class="pattern-card">
         <h4>🟢 Удачные (${successful.length}) — средние условия</h4>
-        <div class="pattern-stat"><span>Σ дождя / 10 дн</span><span class="value">${sStats.rain10d.toFixed(1)} мм</span></div>
+        <div class="pattern-stat"><span>Σ дождя / 14 дн</span><span class="value">${sStats.rain10d.toFixed(1)} мм</span></div>
         <div class="pattern-stat"><span>Влажность почвы</span><span class="value">${sStats.soilM.toFixed(2)}</span></div>
         <div class="pattern-stat"><span>T почвы</span><span class="value">${sStats.soilT.toFixed(1)} °C</span></div>
         <div class="pattern-stat"><span>T день</span><span class="value">${sStats.tMax.toFixed(1)} °C</span></div>
@@ -1462,7 +1462,7 @@ function renderPatterns() {
       </div>` : ''}
       ${bStats ? `<div class="pattern-card">
         <h4>🚫 Пустые (${blanks.length}) — средние условия</h4>
-        <div class="pattern-stat"><span>Σ дождя / 10 дн</span><span class="value">${bStats.rain10d.toFixed(1)} мм</span></div>
+        <div class="pattern-stat"><span>Σ дождя / 14 дн</span><span class="value">${bStats.rain10d.toFixed(1)} мм</span></div>
         <div class="pattern-stat"><span>Влажность почвы</span><span class="value">${bStats.soilM.toFixed(2)}</span></div>
         <div class="pattern-stat"><span>T почвы</span><span class="value">${bStats.soilT.toFixed(1)} °C</span></div>
         <div class="pattern-stat"><span>T день</span><span class="value">${bStats.tMax.toFixed(1)} °C</span></div>
@@ -1867,7 +1867,7 @@ function showForecastModal(idx) {
   };
   const paramScores = conditionsToRadar(paramConditions, bestSp?.species || null);
   const paramDefs = [
-    { label: '💧 Дождь 10 дн', value: `${r.rain10d} мм`,    score: paramScores[0] },
+    { label: '💧 Дождь 14 дн', value: `${r.rain10d} мм`,    score: paramScores[0] },
     { label: '🌱 Влажность почвы', value: r.soilM.toFixed(2), score: paramScores[1] },
     { label: '🌍 Темп. почвы',  value: `${r.soilT}°`,        score: paramScores[2] },
     { label: '🌡 Темп. день',   value: `${w.fc.tMax[idx].toFixed(0)}°`,score: paramScores[3] },

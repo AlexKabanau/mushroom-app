@@ -84,7 +84,7 @@ export async function fetchTriggerWindow(lat, lon, tripDate, maxLagDays = 16) {
   const end = new Date(trip);
   end.setDate(end.getDate() - 1);                  // last possible trigger = day before trip
   const start = new Date(trip);
-  start.setDate(start.getDate() - maxLagDays - 9); // +9 days for rolling rain10d accuracy
+  start.setDate(start.getDate() - maxLagDays - 13); // +13 days for rolling rain14d accuracy
 
   const url = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}` +
     `&start_date=${dayStr(start)}&end_date=${dayStr(end)}` +
@@ -99,7 +99,7 @@ export async function fetchTriggerWindow(lat, lon, tripDate, maxLagDays = 16) {
   const dayMap = {};
   for (let i = 0; i < d.time.length; i++) {
     const rain10d = d.precipitation_sum
-      .slice(Math.max(0, i - 9), i + 1)
+      .slice(Math.max(0, i - 13), i + 1)
       .reduce((a, b) => a + (b || 0), 0);
     const frostInLast7Days = d.temperature_2m_min
       .slice(Math.max(0, i - 6), i + 1)
@@ -135,8 +135,16 @@ export async function fetchHistoricalConditions(lat, lon, date) {
   const dayIdx = daily.time.indexOf(date);
   if (dayIdx < 0) return null;
 
-  const last10Rain = daily.precipitation_sum.slice(Math.max(0, dayIdx - 9), dayIdx + 1).reduce((a, b) => a + b, 0);
+  const last10Rain = daily.precipitation_sum.slice(Math.max(0, dayIdx - 13), dayIdx + 1).reduce((a, b) => a + b, 0);
   const last30Rain = daily.precipitation_sum.slice(0, dayIdx + 1).reduce((a, b) => a + b, 0);
+
+  const dryDaysIn30 = daily.precipitation_sum
+    .slice(Math.max(0, dayIdx - 29), dayIdx + 1)
+    .filter(r => (r || 0) < 2).length;
+
+  const frostCount = (daily.temperature_2m_min || [])
+    .slice(Math.max(0, dayIdx - 9), dayIdx + 1)
+    .filter(t => t != null && t < 0).length;
 
   return {
     soilM: parseFloat(daily.soil_moisture_7_to_28cm_mean[dayIdx]?.toFixed(3) ?? 0),
@@ -145,6 +153,8 @@ export async function fetchHistoricalConditions(lat, lon, date) {
     rain30d: parseFloat(last30Rain.toFixed(1)),
     tMax: parseFloat(daily.temperature_2m_max[dayIdx]?.toFixed(1) ?? 0),
     tMin: parseFloat(daily.temperature_2m_min[dayIdx]?.toFixed(1) ?? 0),
-    humidity: Math.round(daily.relative_humidity_2m_mean?.[dayIdx] ?? 0)
+    humidity: Math.round(daily.relative_humidity_2m_mean?.[dayIdx] ?? 0),
+    dryDaysIn30,
+    frostCount
   };
 }

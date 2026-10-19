@@ -40,17 +40,40 @@ export function scoreFromConditions(c, speciesKey = null) {
     else if (c.rainToday > 8) score -= 5;
   }
 
-  // Пиковый месяц: +7 бонус если дата попадает в пиковые месяцы вида
+  // Пиковый месяц: +7 бонус (отключается после 20 октября — поздний сезон)
   const specCfg = speciesKey ? CONFIG.speciesConfig?.[speciesKey] : null;
   if (specCfg?.peakMonths && c.date) {
-    const month = new Date(c.date).getMonth() + 1; // 1–12
-    if (specCfg.peakMonths.includes(month)) score += 7;
+    const _d = new Date(c.date);
+    const month = _d.getMonth() + 1; // 1–12
+    const lateOct = (month === 10 && _d.getDate() > 20) || month > 10;
+    if (!lateOct && specCfg.peakMonths.includes(month)) score += 7;
   }
 
   // Специальное правило: мороз → бонус для опёнка
   if (specCfg?.specialRule === 'frost' && c.frostInLast7Days) score += 15;
 
+  // Трубчатые виды: несколько заморозков = конец плодоношения
+  // Büntgen 2015, Boddy 2014: повторные ночные морозы убивают активную волну трубчатых
+  const TUBULAR = ['белый','подберёзовик','подосиновик','маслёнок','рыжик','лисичка','моховик','польский гриб'];
+  if (TUBULAR.includes(speciesKey) && c.frostCount != null) {
+    if      (c.frostCount >= 3) score -= 20;
+    else if (c.frostCount === 2) score -= 10;
+  }
+
+  // Засуха: штраф если большинство последних 30 дней были сухими
+  // Büntgen 2015: засуха >3 недель подавляет плодоношение даже после дождей
+  if (c.dryDaysIn30 != null) {
+    if      (c.dryDaysIn30 > 24) score -= 15;   // >80% месяца — засуха
+    else if (c.dryDaysIn30 > 18) score -= 8;    // >60% месяца — умеренная засуха
+  }
+
   score = Math.max(0, Math.min(100, score));
+
+  // Жёсткий потолок холодной почвы:
+  // soilT < 4°C — трубчатые не плодоносят (Boddy 2014, Salerni 2023)
+  if (c.soilT != null && c.soilT < 4 && specCfg?.specialRule !== 'frost') {
+    score = Math.min(score, 30);
+  }
 
   // ======================================================
   // Дождевой потолок: дождь — триггер плодоношения.
@@ -117,11 +140,12 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   const tMin = fc.tMin[idx];
   const date = fc.dates?.[idx] || null;
 
-  // Rolling 10-day rain window (combine hist tail + forecast up to this day)
-  const histTail = hist.rain.slice(-10 + idx + 1);
+  // Rolling 14-day rain window (combine hist tail + forecast up to this day)
+  // Andrew et al. 2018, Büntgen 2015: 14-day cumulative rain = strongest predictor
+  const histTail = hist.rain.slice(-14 + idx + 1);
   const futureRain = fc.rain.slice(0, idx + 1);
   const combined = histTail.concat(futureRain);
-  const rain10d = combined.slice(-10).reduce((a, b) => a + b, 0);
+  const rain10d = combined.slice(-14).reduce((a, b) => a + b, 0);
 
   // Soil moisture: используем реальный прогноз open-meteo если доступен,
   // иначе проецируем от последней исторической точки
@@ -165,6 +189,19 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   ].slice(-7);
   const frostInLast7Days = recentTMin.some(t => t < 0);
 
+  // Frost count: количество ночей с морозом за последние 10 дней
+  const recentTMin10 = [
+    ...(hist.tMin ? hist.tMin.slice(-10) : []),
+    ...(fc.tMin ? fc.tMin.slice(0, idx + 1) : [])
+  ].slice(-10);
+  const frostCount = recentTMin10.filter(t => t < 0).length;
+
+  // Dry days in last 30: дни с осадками <2мм за последние 30 дней
+  // Büntgen 2015: засуха >3 недель подавляет плодоношение даже после дождей
+  const allRainFull = [...(hist.rain || []), ...fc.rain.slice(0, idx + 1)];
+  const rain30window = allRainFull.slice(Math.max(0, allRainFull.length - 30));
+  const dryDaysIn30 = rain30window.filter(r => (r || 0) < 2).length;
+
   // Cold Shock ΔT (правило Василькова):
   // ΔT = среднее за дни [-10..-4] минус среднее за дни [-3..0]
   // Используем hist.tMax+tMin для вычисления tMean
@@ -188,6 +225,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     rainToday: fc.rain[idx],
     date,
     frostInLast7Days,
+    frostCount,
+    dryDaysIn30,
     coldShockDelta   // для MDI cold shock trigger
   };
 
@@ -200,6 +239,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     rain10d: conditions.rain10d,
     apiRain: conditions.apiRain,
     frostInLast7Days,
+    frostCount: conditions.frostCount,
+    dryDaysIn30: conditions.dryDaysIn30,
     coldShockDelta: conditions.coldShockDelta
   };
 }
@@ -213,11 +254,21 @@ function conditionsFromHist(hist, histOffset) {
   const hIdx = hist.dates.length - histOffset;
   if (hIdx < 0 || hIdx >= hist.dates.length) return null;
   const rain10d = hist.rain
-    .slice(Math.max(0, hIdx - 9), hIdx + 1)
+    .slice(Math.max(0, hIdx - 13), hIdx + 1)
     .reduce((a, b) => a + (b || 0), 0);
   const frostInLast7Days = hist.tMin
     .slice(Math.max(0, hIdx - 6), hIdx + 1)
     .some(t => t < 0);
+
+  // Frost count (last 10 days)
+  const frostCount = (hist.tMin || [])
+    .slice(Math.max(0, hIdx - 9), hIdx + 1)
+    .filter(t => t < 0).length;
+
+  // Dry days in last 30
+  const dryDaysIn30 = (hist.rain || [])
+    .slice(Math.max(0, hIdx - 29), hIdx + 1)
+    .filter(r => (r || 0) < 2).length;
 
   // Cold Shock ΔT для исторического триггерного дня
   let coldShockDelta = 0;
@@ -240,6 +291,8 @@ function conditionsFromHist(hist, histOffset) {
     rainToday: hist.rain[hIdx],
     date: hist.dates[hIdx],
     frostInLast7Days,
+    frostCount,
+    dryDaysIn30,
     coldShockDelta
   };
 }
@@ -278,6 +331,8 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
         rainToday: fc.rain[triggerIdx],
         date: fc.dates?.[triggerIdx] || null,
         frostInLast7Days: base.frostInLast7Days,
+        frostCount: base.frostCount,
+        dryDaysIn30: base.dryDaysIn30,
         coldShockDelta: base.coldShockDelta ?? 0,
         apiRain: base.apiRain ?? base.rain10d
       };
