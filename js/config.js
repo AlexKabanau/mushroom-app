@@ -90,7 +90,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 13], fair: [6, 16] },
         soilM: { ok: [0.26, 0.4], fair: [0.2, 0.44] },
-        rain10d: { ok: [11, 63], fair: [5, 78] }, // 14-day window; Bielefeld lag=10 confirmed, scaled ×1.4
+        rain10d: { ok: [11, 63], fair: [6, 78] }, // 14-day window; Bielefeld fair[0]=4mm×1.4=5.6→6
         tMax: { ok: [12, 21], fair: [8, 24] },   // Bielefeld: rollT оптим. 9-17°C → tMax до 22
         tMin: { ok: 4, fair: 1 },
       },
