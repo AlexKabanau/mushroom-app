@@ -83,7 +83,7 @@ export const CONFIG = {
       scoring: {
         soilT: { ok: [8, 18], fair: [6, 22] },
         soilM: { ok: [0.22, 0.4], fair: [0.18, 0.45] },
-        rain10d: { ok: [17, 58], fair: [11, 72] },
+        rain10d: { ok: [22, 58], fair: [11, 72] }, // было 17 → 22: single-burst rain после засухи не даёт волну (Oct 2026 кейс)
         tMax: { ok: [10, 22], fair: [6, 26] },
         tMin: { ok: 3, fair: -1 },
       },
