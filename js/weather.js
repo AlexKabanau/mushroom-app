@@ -5,15 +5,17 @@ import { CONFIG } from './config.js';
  * Serialised fetch wrapper for open-meteo.
  * All requests share a single promise-chain (_omQueue) so they execute one at a time,
  * preventing "Too many concurrent requests" on the free tier.
- * A one-shot retry (after 2 s) is kept as an extra safety net.
+ * Retries up to 4 times on any error response (overloaded, rate-limit, etc.)
+ * with exponential backoff: 1.5 s → 3 s → 6 s → 12 s.
  */
 let _omQueue = Promise.resolve();
 function omFetch(url) {
   const req = _omQueue.then(async () => {
-    const data = await fetch(url).then(r => r.json());
-    if (data?.error && data?.reason === 'Too many concurrent requests') {
-      await new Promise(r => setTimeout(r, 2000));
-      return fetch(url).then(r => r.json());
+    const delays = [1500, 3000, 6000, 12000];
+    let data = await fetch(url).then(r => r.json());
+    for (let i = 0; i < delays.length && data?.error; i++) {
+      await new Promise(r => setTimeout(r, delays[i]));
+      data = await fetch(url).then(r => r.json());
     }
     return data;
   });
