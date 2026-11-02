@@ -213,7 +213,12 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .sb-lag { font-size: 11px; color: #8A7C6B; flex-shrink: 0; }
 .sb-peak { display: inline-block; margin-left: 5px; font-size: 10px; background: #D29A3C; color: white; padding: 1px 5px; border-radius: 8px; vertical-align: middle; font-weight: 600; }
 .sb-alt { font-size: 11px; color: #8A7C6B; flex-shrink: 0; white-space: nowrap; }
-@media (max-width: 600px) { .sb-lag { display: none; } .sb-name { width: 110px; } }
+.sb-wave { font-size: 10px; flex-shrink: 0; padding: 2px 6px; border-radius: 8px; white-space: nowrap; }
+.sb-wave.wave-active  { background: #DFF0D8; color: #3A6B2A; }
+.sb-wave.wave-incub   { background: #EDF5E0; color: #5A7A40; }
+.sb-wave.wave-decay   { background: #FEF3CD; color: #7A5A20; }
+.sb-wave.wave-refr    { background: #F2EBDA; color: #8A7C6B; }
+@media (max-width: 600px) { .sb-lag { display: none; } .sb-name { width: 110px; } .sb-wave { display: none; } }
 
 /* Score preview in form */
 .score-preview-box { border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid; transition: all 200ms; }
@@ -433,6 +438,10 @@ footer a { color: #4A7C3A; }
     & .wt-now  { background: #1A2E14; color: #7AC06A; }
     & .wt-soon { background: #2A2210; color: #C09A50; }
     & .wt-wait { background: #261F17; color: #8A7C6B; }
+    & .sb-wave.wave-active { background: #1A2E14; color: #7AC06A; }
+    & .sb-wave.wave-incub  { background: #1E2A14; color: #6AAC5A; }
+    & .sb-wave.wave-decay  { background: #2A2210; color: #C09A50; }
+    & .sb-wave.wave-refr   { background: #261F17; color: #8A7C6B; }
     & .sb-row, & .pattern-stat, & .wt-row { border-bottom-color: #3A322A; }
     & .validation-table th, & .validation-table td { border-bottom-color: #3A322A; }
     & .chart-wrap, & .chart-score-wrap, & .chart-weather-wrap { background: #1A1611; border-color: #3A322A; }
@@ -492,6 +501,10 @@ html.dark {
   & .wt-now  { background: #1A2E14; color: #7AC06A; }
   & .wt-soon { background: #2A2210; color: #C09A50; }
   & .wt-wait { background: #261F17; color: #8A7C6B; }
+  & .sb-wave.wave-active { background: #1A2E14; color: #7AC06A; }
+  & .sb-wave.wave-incub  { background: #1E2A14; color: #6AAC5A; }
+  & .sb-wave.wave-decay  { background: #2A2210; color: #C09A50; }
+  & .sb-wave.wave-refr   { background: #261F17; color: #8A7C6B; }
   & .sb-row, & .pattern-stat, & .wt-row { border-bottom-color: #3A322A; }
   & .validation-table th, & .validation-table td { border-bottom-color: #3A322A; }
   & .chart-wrap, & .chart-score-wrap, & .chart-weather-wrap { background: #1A1611; border-color: #3A322A; }

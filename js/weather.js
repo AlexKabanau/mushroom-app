@@ -122,9 +122,9 @@ export async function fetchTriggerWindow(lat, lon, tripDate, maxLagDays = 16) {
 
   const dayMap = {};
   for (let i = 0; i < d.time.length; i++) {
-    const rain10d = d.precipitation_sum
-      .slice(Math.max(0, i - 13), i + 1)
-      .reduce((a, b) => a + (b || 0), 0);
+    const rain14dWindow = d.precipitation_sum.slice(Math.max(0, i - 13), i + 1);
+    const rain10d = rain14dWindow.reduce((a, b) => a + (b || 0), 0);
+    const maxDayRain14d = Math.max(...rain14dWindow.map(v => v || 0));
     const frostInLast7Days = d.temperature_2m_min
       .slice(Math.max(0, i - 6), i + 1)
       .some(t => t != null && t < 0);
@@ -132,6 +132,7 @@ export async function fetchTriggerWindow(lat, lon, tripDate, maxLagDays = 16) {
       soilT:  parseFloat((d.soil_temperature_7_to_28cm_mean[i] ?? 0).toFixed(1)),
       soilM:  parseFloat((d.soil_moisture_7_to_28cm_mean[i]  ?? 0).toFixed(3)),
       rain10d: parseFloat(rain10d.toFixed(1)),
+      maxDayRain14d: parseFloat(maxDayRain14d.toFixed(1)),
       tMax:   parseFloat((d.temperature_2m_max[i] ?? 0).toFixed(1)),
       tMin:   parseFloat((d.temperature_2m_min[i] ?? 0).toFixed(1)),
       frostInLast7Days

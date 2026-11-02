@@ -26,8 +26,16 @@ export function scoreFromConditions(c, speciesKey = null) {
   if (c.soilM >= S.soilM.ok[0] && c.soilM <= S.soilM.ok[1]) score += 25;
   else if (c.soilM >= S.soilM.fair[0] && c.soilM <= S.soilM.fair[1]) score += 12;
 
-  if (c.rain10d >= S.rain10d.ok[0] && c.rain10d <= S.rain10d.ok[1]) score += 20;
-  else if (c.rain10d >= S.rain10d.fair[0] && c.rain10d <= S.rain10d.fair[1]) score += 10;
+  // Rain quality: одиночный ливень менее эффективен чем равномерные осадки.
+  // Инфильтрационная способность почвы ограничивает усвоение больших разовых дождей.
+  // Формула: скидываем 50% от каждого мм >8мм в один день за 14-дневное окно.
+  // Oct 11, 2026: maxDay=10.7 → effRain = 17.2 - (10.7-8)*0.5 = 15.9мм (fair, не ok)
+  const effRain = (c.maxDayRain14d != null)
+    ? Math.max(0, c.rain10d - Math.max(0, c.maxDayRain14d - 8) * 0.5)
+    : c.rain10d;
+
+  if (effRain >= S.rain10d.ok[0] && effRain <= S.rain10d.ok[1]) score += 20;
+  else if (effRain >= S.rain10d.fair[0] && effRain <= S.rain10d.fair[1]) score += 10;
 
   if (c.tMax >= S.tMax.ok[0] && c.tMax <= S.tMax.ok[1]) score += 15;
   else if (c.tMax >= S.tMax.fair[0] && c.tMax <= S.tMax.fair[1]) score += 7;
@@ -85,8 +93,8 @@ export function scoreFromConditions(c, speciesKey = null) {
   // Zenodo 17881359 — пик корреляции на lag=10, 25% находок при 5-10мм).
   // ======================================================
   const rainMin = S.rain10d.fair[0]; // минимальный порог для вида (белый: 4мм, грузди: 14-16мм)
-  if (c.rain10d < rainMin) {
-    const ratio = c.rain10d / rainMin;                    // 0.0 → 1.0
+  if (effRain < rainMin) {
+    const ratio = effRain / rainMin;                      // 0.0 → 1.0 (используем effRain)
     const cap = Math.round(28 + ratio * 42);              // 28 (0мм) → 70 (≥rainMin)
     score = Math.min(score, cap);
   }
@@ -145,7 +153,9 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   const histTail = hist.rain.slice(-14 + idx + 1);
   const futureRain = fc.rain.slice(0, idx + 1);
   const combined = histTail.concat(futureRain);
-  const rain10d = combined.slice(-14).reduce((a, b) => a + b, 0);
+  const rain14dWindow = combined.slice(-14);
+  const rain10d = rain14dWindow.reduce((a, b) => a + b, 0);
+  const maxDayRain14d = parseFloat(Math.max(...rain14dWindow.map(v => v || 0)).toFixed(1));
 
   // Soil moisture: используем реальный прогноз open-meteo если доступен,
   // иначе проецируем от последней исторической точки
@@ -219,6 +229,7 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     soilT: parseFloat(st.toFixed(1)),
     soilM: parseFloat(sm.toFixed(3)),
     rain10d: parseFloat(rain10d.toFixed(1)),
+    maxDayRain14d,   // max single-day rain in 14d window (for rain quality penalty)
     apiRain,         // затухающий индекс осадков (λ=0.90), используется в MDI
     tMax,
     tMin,
@@ -253,9 +264,9 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
 function conditionsFromHist(hist, histOffset) {
   const hIdx = hist.dates.length - histOffset;
   if (hIdx < 0 || hIdx >= hist.dates.length) return null;
-  const rain10d = hist.rain
-    .slice(Math.max(0, hIdx - 13), hIdx + 1)
-    .reduce((a, b) => a + (b || 0), 0);
+  const rain14dWindow = hist.rain.slice(Math.max(0, hIdx - 13), hIdx + 1);
+  const rain10d = rain14dWindow.reduce((a, b) => a + (b || 0), 0);
+  const maxDayRain14d = Math.max(...rain14dWindow.map(v => v || 0));
   const frostInLast7Days = hist.tMin
     .slice(Math.max(0, hIdx - 6), hIdx + 1)
     .some(t => t < 0);
@@ -285,6 +296,7 @@ function conditionsFromHist(hist, histOffset) {
     soilT: hist.soilT[hIdx],
     soilM: hist.soilM[hIdx],
     rain10d,
+    maxDayRain14d: parseFloat(maxDayRain14d.toFixed(1)),
     apiRain: hist.apiRain?.[hIdx] ?? rain10d,  // затухающий индекс, fallback на rain10d
     tMax: hist.tMax?.[hIdx] ?? ((hist.tMin[hIdx] ?? 0) + 8), // fallback if tMax absent
     tMin: hist.tMin[hIdx],
@@ -401,14 +413,15 @@ function waveWFI(waveAge, lagDays) {
 /**
  * Compute WFI for a display date given detected ТВП triggers and lagDays.
  * Returns the best (highest) WFI from all valid triggers for this lagDays.
- * Falls back to CONFIG.wave.noTriggerWFI when no relevant trigger found.
+ * Falls back to noTriggerFallback (species-specific or CONFIG.wave.noTriggerWFI).
  */
-export function computeWFI(allTriggers, displayDate, lagDays) {
+export function computeWFI(allTriggers, displayDate, lagDays, noTriggerFallback = null) {
   const W = CONFIG.wave;
-  if (!allTriggers?.length || !displayDate) return W.noTriggerWFI;
+  const fallback = noTriggerFallback ?? W.noTriggerWFI;
+  if (!allTriggers?.length || !displayDate) return fallback;
 
   const valid = filterValidTriggers(allTriggers, lagDays);
-  if (!valid.length) return W.noTriggerWFI;
+  if (!valid.length) return fallback;
 
   let best = -1;
   for (const t of valid) {
@@ -417,7 +430,51 @@ export function computeWFI(allTriggers, displayDate, lagDays) {
     const wfi = waveWFI(age, lagDays);
     if (wfi > best) best = wfi;
   }
-  return best >= 0 ? best : W.noTriggerWFI;
+  return best >= 0 ? best : fallback;
+}
+
+/**
+ * Like computeWFI but returns detailed wave phase info for UI display.
+ * Returns { wfi, phase, label, dayInPhase, totalDays, triggerDate }
+ * Phases: 'incubation' | 'active' | 'decay' | 'refractory' | 'unknown'
+ */
+export function computeWFIDetail(allTriggers, displayDate, lagDays, noTriggerFallback = null) {
+  const W = CONFIG.wave;
+  const fallback = noTriggerFallback ?? W.noTriggerWFI;
+  const noTrigger = { wfi: fallback, phase: 'unknown', label: '? нет данных о волне', dayInPhase: null, totalDays: null, triggerDate: null };
+
+  if (!allTriggers?.length || !displayDate) return noTrigger;
+  const valid = filterValidTriggers(allTriggers, lagDays);
+  if (!valid.length) return noTrigger;
+
+  let best = -1, bestTrigger = null;
+  for (const t of valid) {
+    const age = daysBetween(t.date, displayDate);
+    if (age < 0) continue;
+    const wfi = waveWFI(age, lagDays);
+    if (wfi > best) { best = wfi; bestTrigger = { ...t, age }; }
+  }
+  if (best < 0 || !bestTrigger) return noTrigger;
+
+  const age = bestTrigger.age;
+  const activeEnd = lagDays + W.activeDays;
+  const decayEnd  = activeEnd + W.decayDays;
+
+  let phase, label, dayInPhase, totalDays;
+  if (age < lagDays) {
+    phase = 'incubation'; label = '🌱 инкубация';
+    dayInPhase = age + 1; totalDays = lagDays;
+  } else if (age < activeEnd) {
+    phase = 'active'; label = '✨ волна активна';
+    dayInPhase = age - lagDays + 1; totalDays = W.activeDays;
+  } else if (age < decayEnd) {
+    phase = 'decay'; label = '🍂 затухание';
+    dayInPhase = age - activeEnd + 1; totalDays = W.decayDays;
+  } else {
+    phase = 'refractory'; label = '💤 отдых мицелия';
+    dayInPhase = age - decayEnd + 1; totalDays = W.refractoryDays;
+  }
+  return { wfi: best, phase, label, dayInPhase, totalDays, triggerDate: bestTrigger.date };
 }
 
 /**
@@ -482,10 +539,13 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
     const rawScore = scoreFn(conditions, sp);
 
     // WFI: финальный множитель волнового жизненного цикла
-    // triggers = null → WFI отключён; triggers = [] → noTriggerWFI
-    const wfi = (triggers !== null && displayDate)
-      ? computeWFI(triggers, displayDate, lag)
+    // triggers = null → WFI отключён; triggers = [] → fallback
+    // Используем species-specific noTriggerWFI если задан (напр. лисичка = 0.90)
+    const spNoTrigger = cfg?.noTriggerWFI ?? null;
+    const wfiDetail = (triggers !== null && displayDate)
+      ? computeWFIDetail(triggers, displayDate, lag, spNoTrigger)
       : null;
+    const wfi = wfiDetail ? wfiDetail.wfi : null;
     const score = wfi !== null
       ? Math.max(0, Math.min(100, Math.round(rawScore * wfi)))
       : rawScore;
@@ -495,6 +555,7 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
       emoji: cfg?.emoji || '🍄',
       score,
       wfi: wfi ?? 1,          // для UI: фаза волны (1.0=активна, 0.2=рефрактерная)
+      waveDetail: wfiDetail,  // детали фазы волны для UI
       status: statusFromScore(score),
       lag,
       note: cfg?.note ?? null,

@@ -6,7 +6,7 @@ import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
 import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow, fetchHistSeries } from './weather.js';
 import { fetchBiotope } from './osm.js';
 import { fetchForestTrees, fetchMushroomObservations } from './inat.js';
-import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI } from './scoring.js';
+import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI, computeWFIDetail } from './scoring.js';
 import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
 let state = null;
@@ -972,12 +972,21 @@ function renderDashboard() {
           const altBadge = altEntry != null
             ? `<span class="sb-alt" title="${altLabel === 'MDI' ? 'MDI v2.0' : 'Классика'}">${altLabel}:${altEntry.score}</span>`
             : '';
+          // Wave phase badge
+          let waveBadge = '';
+          if (s.waveDetail && s.waveDetail.phase !== 'unknown') {
+            const wd = s.waveDetail;
+            const dayTip = wd.dayInPhase && wd.totalDays ? ` · д.${wd.dayInPhase}/${wd.totalDays}` : '';
+            const phaseClass = { active: 'wave-active', incubation: 'wave-incub', decay: 'wave-decay', refractory: 'wave-refr' }[wd.phase] || '';
+            waveBadge = `<span class="sb-wave ${phaseClass}" title="Триггер: ${wd.triggerDate || '?'}">${wd.label}${dayTip}</span>`;
+          }
           return `<div class="sb-row">
             <span class="sb-name">${s.species}${peakBadge}</span>
             <div class="sb-bar"><div class="sb-fill ${s.status}" style="width:${s.score}%"></div></div>
             <span class="score-pill ${s.status} sb-score">${s.score}</span>
             ${altBadge}
             ${lagNote}
+            ${waveBadge}
           </div>`;
         }).join('');
     }
