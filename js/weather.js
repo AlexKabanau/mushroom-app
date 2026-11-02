@@ -74,6 +74,30 @@ export async function fetchWeather(lat, lon) {
 }
 
 /**
+ * Fetch a daily time-series (dates, rain, tMax, tMin) ending at endDate, going back
+ * lookbackDays days. Used by detectTPVEvents for Wave Freshness Index (WFI) calculation.
+ * Returns { dates[], rain[], tMax[], tMin[] } or null on error.
+ */
+export async function fetchHistSeries(lat, lon, endDate, lookbackDays = 60) {
+  const end = new Date(endDate + 'T12:00:00');
+  const start = new Date(end);
+  start.setDate(start.getDate() - lookbackDays);
+  const url = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}` +
+    `&start_date=${dayStr(start)}&end_date=${endDate}` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum` +
+    `&timezone=${encodeURIComponent(CONFIG.timezone)}`;
+  const data = await fetch(url).then(r => r.json());
+  const d = data.daily;
+  if (!d?.time?.length) return null;
+  return {
+    dates: d.time,
+    rain:  d.precipitation_sum,
+    tMax:  d.temperature_2m_max,
+    tMin:  d.temperature_2m_min
+  };
+}
+
+/**
  * Fetch a window of daily conditions BEFORE a trip date.
  * Returns a map { "YYYY-MM-DD": { soilT, soilM, rain10d, tMax, tMin, frostInLast7Days } }
  * covering the last maxLagDays before the trip — used to extract trigger conditions per species.

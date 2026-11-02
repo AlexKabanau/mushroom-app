@@ -3,10 +3,10 @@ import { CONFIG } from './config.js';
 import { requireAuth, logout } from './auth.js';
 import { loadLocal, saveAndSync, pullAndMerge } from './storage.js';
 import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
-import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow } from './weather.js';
+import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow, fetchHistSeries } from './weather.js';
 import { fetchBiotope } from './osm.js';
 import { fetchForestTrees, fetchMushroomObservations } from './inat.js';
-import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores } from './scoring.js';
+import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI } from './scoring.js';
 import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
 let state = null;
@@ -241,14 +241,25 @@ async function syncHistoricalForDay(dayId) {
   if (!loc) return;
   showToast('Подтягиваю условия…');
   try {
-    const [c, triggerWindow] = await Promise.all([
+    const [c, triggerWindow, histSeries] = await Promise.all([
       fetchHistoricalConditions(loc.lat, loc.lon, day.date),
-      fetchTriggerWindow(loc.lat, loc.lon, day.date)
+      fetchTriggerWindow(loc.lat, loc.lon, day.date),
+      fetchHistSeries(loc.lat, loc.lon, day.date)
     ]);
     if (c) {
       day.conditions = c;
       const trigger = computeTriggerConditions(day, triggerWindow);
-      if (trigger) day.triggerConditions = trigger;
+      if (trigger) {
+        // Compute and store WFI per species so renderDays can show WFI-adjusted scores
+        if (histSeries) {
+          const tpvTriggers = detectTPVEvents(histSeries);
+          for (const sp of Object.keys(trigger)) {
+            const lag = CONFIG.speciesConfig?.[sp]?.lagDays ?? 7;
+            trigger[sp] = { ...trigger[sp], wfi: computeWFI(tpvTriggers, day.date, lag) };
+          }
+        }
+        day.triggerConditions = trigger;
+      }
       saveAndSync(state);
       renderDays();
       renderPatterns();
@@ -262,26 +273,46 @@ async function syncHistoricalForDay(dayId) {
 }
 
 async function syncAllHistorical() {
-  // Process days that lack conditions OR have conditions but no triggerConditions yet
+  // Process days that lack conditions, triggerConditions, or WFI on any species
   const needsConditions = state.mushroomDays.filter(d => !d.conditions);
   const needsTrigger = state.mushroomDays.filter(
     d => d.conditions && !d.triggerConditions && d.species?.length
   );
-  const needs = [...needsConditions, ...needsTrigger];
+  const needsWFI = state.mushroomDays.filter(
+    d => d.triggerConditions &&
+    Object.values(d.triggerConditions).some(tc => tc.wfi === undefined) &&
+    d.species?.length
+  );
+  const seen = new Set();
+  const needs = [...needsConditions, ...needsTrigger, ...needsWFI].filter(d => {
+    if (seen.has(d.id)) return false;
+    seen.add(d.id);
+    return true;
+  });
   if (needs.length === 0) { showToast('Все дни уже с условиями'); return; }
   showToast(`Загружаю условия для ${needs.length} ${needs.length === 1 ? 'дня' : 'дней'}…`);
   for (const d of needs) {
     const loc = state.locations.find(l => l.id === d.locationId);
     if (!loc) continue;
     try {
-      const [c, triggerWindow] = await Promise.all([
+      const [c, triggerWindow, histSeries] = await Promise.all([
         d.conditions ? Promise.resolve(null) : fetchHistoricalConditions(loc.lat, loc.lon, d.date),
-        fetchTriggerWindow(loc.lat, loc.lon, d.date)
+        fetchTriggerWindow(loc.lat, loc.lon, d.date),
+        fetchHistSeries(loc.lat, loc.lon, d.date)
       ]);
       if (c) d.conditions = c;
       const trigger = computeTriggerConditions(d, triggerWindow);
-      if (trigger) d.triggerConditions = trigger;
-      await new Promise(r => setTimeout(r, 200));
+      if (trigger) {
+        if (histSeries) {
+          const tpvTriggers = detectTPVEvents(histSeries);
+          for (const sp of Object.keys(trigger)) {
+            const lag = CONFIG.speciesConfig?.[sp]?.lagDays ?? 7;
+            trigger[sp] = { ...trigger[sp], wfi: computeWFI(tpvTriggers, d.date, lag) };
+          }
+        }
+        d.triggerConditions = trigger;
+      }
+      await new Promise(r => setTimeout(r, 300));
     } catch (e) { console.warn(e); }
   }
   saveAndSync(state);
@@ -1244,14 +1275,16 @@ function renderDays() {
       let triggerRows = '';
 
       if (d.triggerConditions && d.species?.length) {
-        // Score each species from its own trigger day conditions
+        // Score each species from its own trigger day conditions, applying WFI if stored
         const spScores = d.species
           .map(sp => {
             const tc = d.triggerConditions[sp];
             if (!tc) return null;
-            const score = scoreFromConditions(tc, sp);
+            const rawScore = scoreFromConditions(tc, sp);
+            const wfi = tc.wfi ?? 1.0;
+            const score = Math.max(0, Math.min(100, Math.round(rawScore * wfi)));
             const st = statusFromScore(score);
-            return { sp, score, st, triggerDate: tc.triggerDate };
+            return { sp, score, st, triggerDate: tc.triggerDate, wfi };
           })
           .filter(Boolean)
           .sort((a, b) => b.score - a.score);
@@ -1260,9 +1293,12 @@ function renderDays() {
           predScore  = spScores[0].score;
           predStatus = spScores[0].st;
           triggerRows = `<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">` +
-            spScores.map(s =>
-              `<span style="font-size:10px;color:#6B5F52">${s.sp}:&nbsp;<span class="score-pill ${s.st}" style="font-size:9px;padding:1px 5px">${s.score}</span>&nbsp;<span style="color:#A89880">← ${s.triggerDate}</span></span>`
-            ).join('') + `</div>`;
+            spScores.map(s => {
+              const wfiTag = (s.wfi !== undefined && s.wfi < 0.99)
+                ? `&nbsp;<span title="Wave Freshness Index" style="color:#A89880;font-size:9px">WFI:${s.wfi.toFixed(2)}</span>`
+                : '';
+              return `<span style="font-size:10px;color:#6B5F52">${s.sp}:&nbsp;<span class="score-pill ${s.st}" style="font-size:9px;padding:1px 5px">${s.score}</span>&nbsp;<span style="color:#A89880">← ${s.triggerDate}</span>${wfiTag}</span>`;
+            }).join('') + `</div>`;
         }
       }
 

@@ -403,7 +403,7 @@ function waveWFI(waveAge, lagDays) {
  * Returns the best (highest) WFI from all valid triggers for this lagDays.
  * Falls back to CONFIG.wave.noTriggerWFI when no relevant trigger found.
  */
-function computeWFI(allTriggers, displayDate, lagDays) {
+export function computeWFI(allTriggers, displayDate, lagDays) {
   const W = CONFIG.wave;
   if (!allTriggers?.length || !displayDate) return W.noTriggerWFI;
 
