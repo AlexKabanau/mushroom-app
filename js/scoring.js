@@ -505,7 +505,7 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
 
   return speciesList.map(sp => {
     const cfg = CONFIG.speciesConfig?.[sp];
-    const lag = cfg?.lagDays ?? 7;
+    const lag  = cfg?.lagDays ?? 7;
     const triggerIdx = idx - lag; // which day's conditions drove today's crop
 
     let conditions;
@@ -566,4 +566,28 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
   })
   .filter(Boolean)
   .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Check if mushroom season is effectively closed.
+ * Returns { level: 'open'|'closing'|'closed', reason: string|null }
+ *
+ * closed:  soilT < 2°C (mycelium dormant) OR 5+ frost nights in 10 days
+ * closing: 3–4 frost nights in 10 days (tubulars done, armillaria peak)
+ * open:    normal season
+ *
+ * References: Boddy 2014; Büntgen 2015 (repeated night frosts stop tubular fruiting);
+ * soilT < 2°C = mycelium metabolic arrest threshold (Salerni 2023).
+ */
+export function checkSeasonClosed(soilT, frostCount) {
+  if (soilT != null && soilT < 2) {
+    return { level: 'closed', reason: `почва ${soilT.toFixed(1)}°C — мицелий спит до весны` };
+  }
+  if (frostCount != null && frostCount >= 5) {
+    return { level: 'closed', reason: `${frostCount} морозных ночей за 10 дней — трубчатые закрыли сезон` };
+  }
+  if (frostCount != null && frostCount >= 3) {
+    return { level: 'closing', reason: `${frostCount} морозных ночи за 10 дней — конец трубчатых, опёнок ещё идёт` };
+  }
+  return { level: 'open', reason: null };
 }

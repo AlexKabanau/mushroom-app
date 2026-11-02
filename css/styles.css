@@ -318,6 +318,16 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid #E6DECC; font-size: 11px; color: #8A7C6B; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
 footer a { color: #4A7C3A; }
 
+/* Season close banner */
+.season-banner {
+  display: flex; align-items: center; gap: 8px;
+  border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;
+  font-size: 13px; line-height: 1.4;
+}
+.season-banner.season-closed  { background: #EAF0F8; color: #2A4A6B; border: 1px solid #B0C8E8; }
+.season-banner.season-closing { background: #FDF4E3; color: #7A5A20; border: 1px solid #E8D0A0; }
+.sb-season-icon { font-size: 18px; flex-shrink: 0; }
+
 /* Algorithm toggle (Текущий / MDI v2.0) */
 .algo-switch { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
 .asw-label { font-size:12px; color:#8A7C6B; white-space:nowrap; }
@@ -445,6 +455,8 @@ footer a { color: #4A7C3A; }
     & .sb-row, & .pattern-stat, & .wt-row { border-bottom-color: #3A322A; }
     & .validation-table th, & .validation-table td { border-bottom-color: #3A322A; }
     & .chart-wrap, & .chart-score-wrap, & .chart-weather-wrap { background: #1A1611; border-color: #3A322A; }
+    & .season-banner.season-closed  { background: #1A2230; color: #90B8E8; border-color: #304860; }
+    & .season-banner.season-closing { background: #2A2210; color: #C09A50; border-color: #3A3020; }
     & .modal-overlay { background: rgba(0,0,0,0.7); }
     & .checkboxes label { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
     & .checkboxes label.checked { background: #3A6030; border-color: #5A9050; color: #EDE8DC; }

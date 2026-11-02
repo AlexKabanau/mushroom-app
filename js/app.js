@@ -6,7 +6,7 @@ import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
 import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow, fetchHistSeries } from './weather.js';
 import { fetchBiotope } from './osm.js';
 import { fetchForestTrees, fetchMushroomObservations } from './inat.js';
-import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI, computeWFIDetail } from './scoring.js';
+import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI, computeWFIDetail, checkSeasonClosed } from './scoring.js';
 import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
 let state = null;
@@ -939,6 +939,20 @@ function renderDashboard() {
   document.getElementById('verdictDot').textContent = displayStatus === 'green' ? '▲' : displayStatus === 'yellow' ? '●' : '✕';
   document.getElementById('verdictTitle').textContent = title;
   document.getElementById('verdictBody').innerHTML = body;
+
+  // Season close banner: показываем если почва холодная или много морозных ночей
+  const seasonStatus = checkSeasonClosed(todayScore.soilT, todayScore.frostCount);
+  const seasonBannerEl = document.getElementById('seasonBanner');
+  if (seasonBannerEl) {
+    if (seasonStatus.level !== 'open') {
+      const icon = seasonStatus.level === 'closed' ? '🧊' : '🍂';
+      seasonBannerEl.style.display = '';
+      seasonBannerEl.className = `season-banner season-${seasonStatus.level}`;
+      seasonBannerEl.innerHTML = `<span class="sb-season-icon">${icon}</span> <strong>${seasonStatus.level === 'closed' ? 'Сезон закрыт' : 'Конец сезона'}</strong> — ${seasonStatus.reason}`;
+    } else {
+      seasonBannerEl.style.display = 'none';
+    }
+  }
 
   // Factor cards
   const S = CONFIG.scoring;
