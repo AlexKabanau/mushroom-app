@@ -1314,12 +1314,20 @@ function renderDays() {
       if (predScore !== undefined) {
         const isSuccess = !isBlank;
         const emoji = { green: '🟢', yellow: '🟡', red: '🔴' }[predStatus];
+        // Quantity-calibrated verdict:
+        //   score ≥ 85 expects средне+ (qNum ≥ 2); score 70–84 expects мало+ (qNum ≥ 1)
+        const qNum = { none: 0, little: 1, some: 2, many: 3, jackpot: 4 }[d.quantity] ?? 2;
+        const minExpected = predScore >= 85 ? 2 : 1;
         let verdictClass = 'neutral', verdictIcon = '~', verdictTip = 'пограничный';
-        if (predStatus !== 'yellow') {
-          const modelRight = (predStatus === 'green' && isSuccess) || (predStatus === 'red' && !isSuccess);
-          verdictClass = modelRight ? 'ok' : 'off';
-          verdictIcon = modelRight ? '✓' : '✗';
-          verdictTip = modelRight ? 'модель права' : 'модель ошиблась';
+        if (predStatus === 'yellow') {
+          // borderline — no verdict
+        } else if (predStatus === 'green') {
+          if (qNum === 0)               { verdictClass='off';     verdictIcon='✗'; verdictTip='модель завысила'; }
+          else if (qNum < minExpected)  { verdictClass='neutral'; verdictIcon='~'; verdictTip='ожидалось больше'; }
+          else                          { verdictClass='ok';      verdictIcon='✓'; verdictTip='модель права'; }
+        } else { // red
+          if (isSuccess)  { verdictClass='off'; verdictIcon='✗'; verdictTip='модель занизила'; }
+          else            { verdictClass='ok';  verdictIcon='✓'; verdictTip='модель права'; }
         }
         scoreBadgeHtml = `<div class="day-card-score">
           <span class="score-pill ${predStatus}">${emoji} ${predScore}</span>
@@ -1470,9 +1478,20 @@ function renderPatterns() {
     if (predScore === undefined) predScore = scoreFromConditions(d.conditions);
     const predStatus = statusFromScore(predScore);
     const actualIsSuccess = d.quantity && d.quantity !== 'none';
-    const match = (predStatus === 'green' && actualIsSuccess) || (predStatus === 'red' && !actualIsSuccess) || (predStatus === 'yellow');
+    const qNum = { none: 0, little: 1, some: 2, many: 3, jackpot: 4 }[d.quantity] ?? 2;
+    const minExpected = predScore >= 85 ? 2 : 1;
+    // match: true=correct, false=wrong, null=borderline/over-expected
+    let match;
+    if (predStatus === 'yellow') match = null;
+    else if (predStatus === 'green') {
+      if (qNum === 0) match = false;                 // green + пусто = over
+      else if (qNum < minExpected) match = null;     // green + мало при score≥85 = "ожидалось больше"
+      else match = true;
+    } else { // red
+      match = !actualIsSuccess;
+    }
     const loc = state.locations.find(l => l.id === d.locationId);
-    return { d, predScore, predStatus, actualIsSuccess, match, locName: loc?.name || '—' };
+    return { d, predScore, predStatus, actualIsSuccess, qNum, match, locName: loc?.name || '—' };
   }).sort((a, b) => b.d.date.localeCompare(a.d.date));
 
   const strict = validationRows.filter(r => r.predStatus !== 'yellow');
@@ -1584,9 +1603,10 @@ function buildAccuracyBlock(rows, accuracy) {
   const strict = rows.filter(r => r.predStatus !== 'yellow');
   if (strict.length < 2) return `<div class="accuracy-card"><h4>Точность модели</h4><p style="font-size:13px;color:#8A7C6B;margin:0">Недостаточно данных. Добавьте больше дней (в т.ч. пустых), чтобы увидеть статистику.</p></div>`;
 
-  const overestimates = strict.filter(r => r.predStatus === 'green' && !r.actualIsSuccess);
-  const underestimates = strict.filter(r => r.predStatus === 'red' && r.actualIsSuccess);
-  const correct = strict.filter(r => r.match);
+  const overestimates = strict.filter(r => r.match === false && r.predStatus === 'green');
+  const underestimates = strict.filter(r => r.match === false && r.predStatus === 'red');
+  const overExpected  = strict.filter(r => r.match === null && r.predStatus === 'green'); // score≥85 but мало
+  const correct = strict.filter(r => r.match === true);
   const total = strict.length;
   const pct = Math.round((correct.length / total) * 100);
   const overPct = Math.round((overestimates.length / total) * 100);
@@ -1594,9 +1614,9 @@ function buildAccuracyBlock(rows, accuracy) {
 
   let advice = '';
   if (overestimates.length > underestimates.length && overestimates.length >= 2) {
-    advice = `Модель чаще <strong>завышает</strong> прогноз (${overPct}% случаев — зелёный, а грибов не было). Попробуйте поднять <code>threshold.green</code> в <code>config.js</code> с 70 до 75–80.`;
+    advice = `Модель чаще <strong>завышает</strong> прогноз (${overPct}% — зелёный, а грибов не было). Попробуйте поднять <code>threshold.green</code> с 70 до 75–80.`;
   } else if (underestimates.length > overestimates.length && underestimates.length >= 2) {
-    advice = `Модель чаще <strong>занижает</strong> прогноз (${underPct}% случаев — красный, а грибы были). Попробуйте снизить <code>threshold.green</code> до 60–65.`;
+    advice = `Модель чаще <strong>занижает</strong> прогноз (${underPct}% — красный, а грибы были). Попробуйте снизить <code>threshold.green</code> до 60–65.`;
   } else if (pct >= 80) {
     advice = `Модель хорошо откалибрована: ${pct}% совпадений. Продолжайте собирать данные для подтверждения.`;
   } else {
@@ -1608,17 +1628,22 @@ function buildAccuracyBlock(rows, accuracy) {
   return `<div class="accuracy-card">
     <h4>Точность модели · ${pct}% (${correct.length}/${total} безжёлтых дней)</h4>
     <div class="accuracy-bar-row">
-      <span style="width:100px;font-size:12px">✓ Верно</span>
+      <span style="width:120px;font-size:12px">✓ Верно</span>
       <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(correct.length)}%;background:#4A7C3A"></div></div>
       <span style="font-size:12px;min-width:28px">${correct.length}</span>
     </div>
     <div class="accuracy-bar-row">
-      <span style="width:100px;font-size:12px">↑ Завышено</span>
+      <span style="width:120px;font-size:12px">↑ Завысила</span>
       <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(overestimates.length)}%;background:#B45441"></div></div>
       <span style="font-size:12px;min-width:28px">${overestimates.length}</span>
     </div>
+    ${overExpected.length ? `<div class="accuracy-bar-row">
+      <span style="width:120px;font-size:12px">~ Ожид. больше</span>
+      <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(overExpected.length)}%;background:#D29A3C"></div></div>
+      <span style="font-size:12px;min-width:28px">${overExpected.length}</span>
+    </div>` : ''}
     <div class="accuracy-bar-row">
-      <span style="width:100px;font-size:12px">↓ Занижено</span>
+      <span style="width:120px;font-size:12px">↓ Занизила</span>
       <div class="accuracy-bar"><div class="accuracy-fill" style="width:${barW(underestimates.length)}%;background:#D29A3C"></div></div>
       <span style="font-size:12px;min-width:28px">${underestimates.length}</span>
     </div>
