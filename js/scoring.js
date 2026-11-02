@@ -2,6 +2,29 @@
 import { CONFIG } from './config.js';
 
 /**
+ * Approximate photoperiod (day length, hours) for a given date at latitude latDeg.
+ * Spencer 1971 solar declination + hour-angle formula.
+ * Default lat = 53.5°N (Пуховичский район, Беларусь).
+ */
+/**
+ * Approximate photoperiod (day length, hours) for a given date at latitude latDeg.
+ * Simple cosine declination formula (accurate to ~0.3°).
+ * decl = -23.45° · cos(2π·(doy+10)/365)
+ * Default lat = 53.5°N (Пуховичский район, Беларусь).
+ */
+function dayLengthHours(dateStr, latDeg = 53.5) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const start = new Date(d.getFullYear(), 0, 0);
+  const doy = Math.floor((d - start) / 86400000);
+  const lat  = latDeg * Math.PI / 180;
+  const decl = -0.4093 * Math.cos(2 * Math.PI * (doy + 10) / 365); // rad
+  const cosH = -Math.tan(lat) * Math.tan(decl);
+  if (cosH <= -1) return 24;  // полярный день
+  if (cosH >=  1) return 0;   // полярная ночь
+  return 2 * (Math.acos(cosH) * 180 / Math.PI) / 15; // часы
+}
+
+/**
  * Get scoring thresholds for a species (or default if unknown).
  */
 function getThresholds(speciesKey) {
@@ -55,6 +78,21 @@ export function scoreFromConditions(c, speciesKey = null) {
     const month = _d.getMonth() + 1; // 1–12
     const lateOct = (month === 10 && _d.getDate() > 20) || month > 10;
     if (!lateOct && specCfg.peakMonths.includes(month)) score += 7;
+  }
+
+  // Фотопериод: длина дня как самостоятельный сезонный триггер.
+  // M3a, M3b: ~22 сентября в Беларуси (53.5°N) день = 12ч.
+  // Осенние виды: +5 при дне < 12ч, -3 при дне > 15ч (лето — не сезон).
+  // Лисичка (летний вид): +5 при дне > 14.5ч, -8 при дне < 11ч (зима).
+  if (speciesKey && c.date) {
+    const dayLen = dayLengthHours(c.date);
+    if (speciesKey === 'лисичка') {
+      if      (dayLen > 14.5) score += 5;   // летний пик
+      else if (dayLen < 11.0) score -= 8;   // зима — не её сезон
+    } else if (specCfg) {
+      if      (dayLen < 12.0) score += 5;   // осенний фотопериод-триггер
+      else if (dayLen > 15.0) score -= 3;   // июнь–июль — слабый штраф
+    }
   }
 
   // Специальное правило: мороз → бонус для опёнка
