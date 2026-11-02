@@ -297,6 +297,129 @@ function conditionsFromHist(hist, histOffset) {
   };
 }
 
+// ======================================================
+// Wave Freshness Index (WFI) — волновой жизненный цикл
+// ======================================================
+// Trigg-based state machine: ТВП-триггер (дождь+похолодание) запускает волну.
+// Фазы для отображаемого дня, waveAge = days from trigger to displayDate:
+//   [0, lag)                → 0.35 инкубация (примордии формируются)
+//   [lag, lag+act)          → 1.0  активный выход новых тел
+//   [lag+act, lag+act+dec)  → 1.0→0.25 затухание (переростки)
+//   [lag+act+dec, ∞)        → 0.2  рефрактерный (мицелий восстанавливается)
+// Если ТВП не обнаружен: CONFIG.wave.noTriggerWFI (умеренная неопределённость)
+// WFI применяется как финальный множитель в projectSpeciesScores после scoreFn.
+
+function daysBetween(d1, d2) {
+  return Math.round(
+    (new Date(d2 + 'T12:00:00') - new Date(d1 + 'T12:00:00')) / 86400000
+  );
+}
+
+/**
+ * Scan hist for ТВП events: rain5d ≥ tpvRainMin AND temp drop ≥ tpvDeltaTMin.
+ * deltaT = prevAvg(5d before window) − currAvg(5d window ending at i).
+ * Returns [{date, rain5d, deltaT}], deduped within 3 days.
+ */
+export function detectTPVEvents(hist) {
+  if (!hist?.dates?.length) return [];
+  const W = CONFIG.wave;
+  const n = hist.dates.length;
+  const events = [];
+
+  // Pre-compute daily mean temperatures (optional: requires tMax+tMin)
+  const hasTmp = hist.tMax && hist.tMin && hist.tMax.length === n;
+  const tMean = hasTmp
+    ? hist.tMax.map((mx, j) => (mx + (hist.tMin[j] ?? mx)) / 2)
+    : null;
+
+  for (let i = 9; i < n; i++) {
+    // Rain sum over 5 days [i-4..i]
+    const rain5d = (hist.rain || [])
+      .slice(i - 4, i + 1)
+      .reduce((a, b) => a + (b || 0), 0);
+    if (rain5d < W.tpvRainMin) continue;
+
+    // Temperature drop check (skip if no temp data)
+    if (tMean) {
+      const prevSlice = tMean.slice(i - 9, i - 4); // 5 days before
+      const currSlice = tMean.slice(i - 4, i + 1); // current 5 days
+      if (!prevSlice.length || !currSlice.length) continue;
+      const prevAvg = prevSlice.reduce((a, b) => a + b, 0) / prevSlice.length;
+      const currAvg = currSlice.reduce((a, b) => a + b, 0) / currSlice.length;
+      if (prevAvg - currAvg < W.tpvDeltaTMin) continue;
+
+      const date = hist.dates[i];
+      // Deduplicate: skip if within 3 days of previous event
+      if (events.length && daysBetween(events[events.length - 1].date, date) <= 3) continue;
+      events.push({
+        date,
+        rain5d: +rain5d.toFixed(1),
+        deltaT: +(prevAvg - currAvg).toFixed(1)
+      });
+    }
+  }
+  return events;
+}
+
+/**
+ * Filter triggers: block any trigger that falls within the refractory window
+ * of a previous valid trigger.
+ * minGap = lagDays + activeDays + decayDays + floor(refractoryDays/2)
+ */
+function filterValidTriggers(rawTriggers, lagDays) {
+  if (!rawTriggers?.length) return [];
+  const W = CONFIG.wave;
+  const minGap = lagDays + W.activeDays + W.decayDays + Math.floor(W.refractoryDays / 2);
+  const sorted = [...rawTriggers].sort((a, b) => a.date.localeCompare(b.date));
+  const valid = [];
+  for (const t of sorted) {
+    if (!valid.length || daysBetween(valid[valid.length - 1].date, t.date) >= minGap) {
+      valid.push(t);
+    }
+  }
+  return valid;
+}
+
+/**
+ * WFI (0–1) for a single wave of waveAge days since its trigger date.
+ * waveAge = daysBetween(triggerDate, displayDate)
+ */
+function waveWFI(waveAge, lagDays) {
+  const W = CONFIG.wave;
+  if (waveAge < 0) return 0;
+  if (waveAge < lagDays) return 0.35;                      // underground incubation
+  const activeEnd = lagDays + W.activeDays;
+  const decayEnd  = activeEnd + W.decayDays;
+  if (waveAge < activeEnd) return 1.0;                     // active emergence
+  if (waveAge < decayEnd) {
+    const ratio = (waveAge - activeEnd) / W.decayDays;
+    return +(1.0 - ratio * 0.75).toFixed(3);               // linear 1.0 → 0.25
+  }
+  return 0.2;                                              // refractory / spent
+}
+
+/**
+ * Compute WFI for a display date given detected ТВП triggers and lagDays.
+ * Returns the best (highest) WFI from all valid triggers for this lagDays.
+ * Falls back to CONFIG.wave.noTriggerWFI when no relevant trigger found.
+ */
+function computeWFI(allTriggers, displayDate, lagDays) {
+  const W = CONFIG.wave;
+  if (!allTriggers?.length || !displayDate) return W.noTriggerWFI;
+
+  const valid = filterValidTriggers(allTriggers, lagDays);
+  if (!valid.length) return W.noTriggerWFI;
+
+  let best = -1;
+  for (const t of valid) {
+    const age = daysBetween(t.date, displayDate);
+    if (age < 0) continue;  // trigger is in the future of displayDate
+    const wfi = waveWFI(age, lagDays);
+    if (wfi > best) best = wfi;
+  }
+  return best >= 0 ? best : W.noTriggerWFI;
+}
+
 /**
  * Project scores for a list of species on a given forecast day.
  *
@@ -307,10 +430,21 @@ function conditionsFromHist(hist, histOffset) {
  *   >= 0  → trigger is within forecast range → use projectDayScore
  *   <  0  → trigger is in historical data   → use conditionsFromHist
  *
+ * tpvTriggers: pass pre-detected ТВП triggers array to reuse across calls.
+ *   undefined → auto-detect from hist (default, convenient)
+ *   null      → disable WFI entirely (testing/debug)
+ *   []|[...]  → use provided list
+ *
+ * WFI is applied as final multiplier AFTER scoreFn (works with any scoreFn).
+ *
  * Returns array sorted by score desc.
  */
-export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = scoreFromConditions) {
+export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = scoreFromConditions, tpvTriggers = undefined) {
   if (!hist || !fc || !speciesList?.length) return [];
+
+  // Detect ТВП triggers once for this hist (shared across all species in this call)
+  const triggers = tpvTriggers !== undefined ? tpvTriggers : detectTPVEvents(hist);
+  const displayDate = fc.dates?.[idx] || null;
 
   return speciesList.map(sp => {
     const cfg = CONFIG.speciesConfig?.[sp];
@@ -345,11 +479,22 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
 
     if (!conditions) return null;
 
-    const score = scoreFn(conditions, sp);
+    const rawScore = scoreFn(conditions, sp);
+
+    // WFI: финальный множитель волнового жизненного цикла
+    // triggers = null → WFI отключён; triggers = [] → noTriggerWFI
+    const wfi = (triggers !== null && displayDate)
+      ? computeWFI(triggers, displayDate, lag)
+      : null;
+    const score = wfi !== null
+      ? Math.max(0, Math.min(100, Math.round(rawScore * wfi)))
+      : rawScore;
+
     return {
       species: sp,
       emoji: cfg?.emoji || '🍄',
       score,
+      wfi: wfi ?? 1,          // для UI: фаза волны (1.0=активна, 0.2=рефрактерная)
       status: statusFromScore(score),
       lag,
       note: cfg?.note ?? null,
