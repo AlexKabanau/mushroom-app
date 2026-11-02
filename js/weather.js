@@ -152,10 +152,17 @@ export async function fetchHistoricalConditions(lat, lon, date) {
 
   const url = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}&start_date=${dayStr(start)}&end_date=${date}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean,relative_humidity_2m_mean&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
-  const data = await fetch(url).then(r => r.json());
+  // Retry при rate-limit (free tier open-meteo limit)
+  let data;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1200 * attempt));
+    data = await fetch(url).then(r => r.json());
+    if (!data.error) break;
+    if (data.reason !== 'Too many concurrent requests') break; // другая ошибка — не ретраить
+  }
+
   const daily = data.daily;
   if (!daily?.time?.length) {
-    // API вернул ошибку или пустой ответ
     const reason = data.reason || data.error || JSON.stringify(data).slice(0, 120);
     throw new Error(`open-meteo archive: ${reason}`);
   }
