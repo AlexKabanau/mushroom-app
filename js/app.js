@@ -1627,6 +1627,240 @@ function buildAccuracyBlock(rows, accuracy) {
 }
 
 // =========================
+// Calibration tab
+// =========================
+
+function renderCalibration() {
+  const container = document.getElementById('calibrationContent');
+  if (!container) return;
+
+  const TARGET_N = 40;
+  const qVal = { none: 0, little: 1, some: 2, many: 3, jackpot: 4 };
+  const qLabel = { none: 'пусто', little: 'мало', some: 'средне', many: 'много', jackpot: 'джекпот' };
+
+  // All trips that have per-species trigger conditions
+  const trips = state.mushroomDays.filter(d => d.triggerConditions && d.species?.length && d.quantity);
+  const totalN = trips.length;
+
+  if (totalN === 0) {
+    container.innerHTML = `<div class="empty-state">
+      <p>Нет данных для анализа.</p>
+      <p style="font-size:13px">Добавь грибные дни и нажми «Подтянуть все условия» во вкладке «Грибные дни».</p>
+    </div>`;
+    return;
+  }
+
+  // Build per-trip summary (best score = top species)
+  const rows = trips.map(d => {
+    const isSuccess = d.quantity !== 'none';
+    const spScores = d.species.flatMap(sp => {
+      const tc = d.triggerConditions[sp];
+      if (!tc) return [];
+      return [{ sp, score: scoreFromConditions(tc, sp) }];
+    });
+    if (!spScores.length) return null;
+    spScores.sort((a, b) => b.score - a.score);
+    const best = spScores[0];
+    const predStatus = statusFromScore(best.score);
+    const loc = state.locations.find(l => l.id === d.locationId);
+    return { d, isSuccess, spScores, bestScore: best.score, bestSp: best.sp, predStatus, locName: loc?.name || '—' };
+  }).filter(Boolean);
+
+  // === 1. CONFUSION MATRIX  predicted (G/Y/R) × actual (found/пусто) ===
+  const matrix = { green: { found: 0, none: 0 }, yellow: { found: 0, none: 0 }, red: { found: 0, none: 0 } };
+  rows.forEach(r => { matrix[r.predStatus][r.isSuccess ? 'found' : 'none']++; });
+
+  const matTotal = rows.length;
+  const correct = rows.filter(r => r.predStatus !== 'yellow' &&
+    ((r.predStatus === 'green' && r.isSuccess) || (r.predStatus === 'red' && !r.isSuccess)));
+  const wrong = rows.filter(r => r.predStatus !== 'yellow' &&
+    ((r.predStatus === 'green' && !r.isSuccess) || (r.predStatus === 'red' && r.isSuccess)));
+  const borderline = rows.filter(r => r.predStatus === 'yellow');
+  const strictN = matTotal - borderline.length;
+  const accPct = strictN > 0 ? Math.round((correct.length / strictN) * 100) : null;
+
+  // Cell bg helper: green diagonal, red off-diagonal
+  const cellBg = (predicted, isFoundCol) => {
+    if (predicted === 'yellow') return '#f5f0e8';
+    const isCorrect = (predicted === 'green' && isFoundCol) || (predicted === 'red' && !isFoundCol);
+    return isCorrect ? '#eaf4e0' : '#fdf0ec';
+  };
+
+  const matHtml = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr>
+          <th style="padding:6px 8px;text-align:left;color:#6B5F52;font-weight:500">Прогноз</th>
+          <th style="padding:6px 8px;text-align:center;background:#eaf4e0;border-radius:4px 0 0 0">✓ Нашёл</th>
+          <th style="padding:6px 8px;text-align:center;background:#fdf0ec;border-radius:0 4px 0 0">✗ Пусто</th>
+          <th style="padding:6px 8px;text-align:center;color:#8A7C6B">Всего</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${[['green','🟢 Зелёный'], ['yellow','🟡 Жёлтый'], ['red','🔴 Красный']].map(([st, lbl]) => `
+          <tr>
+            <td style="padding:6px 8px;color:#4A3F35;font-size:12px">${lbl}</td>
+            <td style="padding:6px 8px;text-align:center;background:${cellBg(st, true)};font-weight:${matrix[st].found ? '600' : '400'}">${matrix[st].found || '—'}</td>
+            <td style="padding:6px 8px;text-align:center;background:${cellBg(st, false)};font-weight:${matrix[st].none ? '600' : '400'}">${matrix[st].none || '—'}</td>
+            <td style="padding:6px 8px;text-align:center;color:#8A7C6B">${matrix[st].found + matrix[st].none}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  // === 2. PER-SPECIES SCORE BIAS ===
+  const spData = {};
+  rows.forEach(r => {
+    r.spScores.forEach(({ sp, score }) => {
+      if (!spData[sp]) spData[sp] = { success: [], fail: [] };
+      spData[sp][r.isSuccess ? 'success' : 'fail'].push(score);
+    });
+  });
+
+  const mean = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+
+  const spEntries = Object.entries(spData)
+    .map(([sp, v]) => {
+      const avgS = mean(v.success), avgF = mean(v.fail);
+      const n = v.success.length + v.fail.length;
+      let bias = '', biasColor = '#6B5F52';
+      if (avgS !== null && avgS < 65 && v.success.length >= 1) {
+        bias = `↓ занижает`;
+        biasColor = '#D29A3C';
+      } else if (avgF !== null && avgF >= 55 && v.fail.length >= 1) {
+        bias = `↑ завышает`;
+        biasColor = '#B45441';
+      } else if (avgS !== null && avgS >= 70) {
+        bias = `✓ точно`;
+        biasColor = '#4A7C3A';
+      }
+      return { sp, avgS, avgF, n, bias, biasColor };
+    })
+    .filter(e => e.n >= 1)
+    .sort((a, b) => b.n - a.n);
+
+  const pill = (score) => {
+    if (score === null) return '<span style="color:#C0B09A">—</span>';
+    const st = statusFromScore(score);
+    return `<span class="score-pill ${st}" style="font-size:11px;padding:1px 7px">${score}</span>`;
+  };
+
+  const spHtml = spEntries.length === 0 ? '<p style="font-size:13px;color:#8A7C6B;margin:0">Недостаточно данных.</p>' :
+    `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="color:#6B5F52;font-weight:500">
+          <th style="padding:5px 8px;text-align:left">Вид</th>
+          <th style="padding:5px 8px;text-align:center">Ср. балл<br><span style="font-weight:400;font-size:11px">нашёл (N)</span></th>
+          <th style="padding:5px 8px;text-align:center">Ср. балл<br><span style="font-weight:400;font-size:11px">пусто (N)</span></th>
+          <th style="padding:5px 8px;text-align:left">Смещение</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${spEntries.map(e => `<tr style="border-top:1px solid #EDE8DF">
+          <td style="padding:5px 8px;color:#4A3F35">${e.sp}</td>
+          <td style="padding:5px 8px;text-align:center">${pill(e.avgS)} <span style="font-size:10px;color:#A89880">${e.avgS !== null ? `(${spData[e.sp].success.length})` : ''}</span></td>
+          <td style="padding:5px 8px;text-align:center">${pill(e.avgF)} <span style="font-size:10px;color:#A89880">${e.avgF !== null ? `(${spData[e.sp].fail.length})` : ''}</span></td>
+          <td style="padding:5px 8px;color:${e.biasColor};font-size:12px">${e.bias}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:8px;font-size:11px;color:#A89880">↓ занижает: ср. балл на удачных поездках < 65 (модель недооценивает вид). ↑ завышает: ср. балл на пустых > 55.</div>`;
+
+  // === 3. ERROR JOURNAL — only "✗ ошиблась" cases ===
+  const errors = rows.filter(r => r.predStatus !== 'yellow' &&
+    ((r.predStatus === 'green' && !r.isSuccess) || (r.predStatus === 'red' && r.isSuccess)))
+    .sort((a, b) => b.d.date.localeCompare(a.d.date));
+
+  const errorHtml = errors.length === 0
+    ? '<p style="font-size:13px;color:#4A7C3A;margin:0">✓ Ошибок нет — или пока недостаточно данных.</p>'
+    : errors.map(r => {
+        const dt = new Date(r.d.date).toLocaleDateString('ru-RU', { day:'2-digit', month:'short', year:'numeric' });
+        const type = r.predStatus === 'green' ? '↑ Завысила' : '↓ Занизила';
+        const typeColor = r.predStatus === 'green' ? '#B45441' : '#D29A3C';
+        const spStr = r.spScores.slice(0, 3).map(s =>
+          `${s.sp} <span class="score-pill ${statusFromScore(s.score)}" style="font-size:10px;padding:0 5px">${s.score}</span>`
+        ).join('&nbsp;·&nbsp;');
+        return `<div style="padding:10px 12px;background:#FDFAF6;border:1px solid #EDE8DF;border-radius:8px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
+            <span style="font-size:13px;color:#4A3F35;font-weight:500">${dt} · ${r.locName}</span>
+            <span style="font-size:12px;color:${typeColor};font-weight:600">${type}</span>
+          </div>
+          <div style="margin-top:6px;font-size:12px;color:#6B5F52">${spStr}</div>
+          <div style="margin-top:4px;font-size:11px;color:#A89880">Реальный исход: <strong>${qLabel[r.d.quantity]}</strong></div>
+        </div>`;
+      }).join('');
+
+  // === 4. PROGRESS + RECOMMENDATION ===
+  const progressPct = Math.min(100, Math.round((totalN / TARGET_N) * 100));
+  const progressColor = progressPct >= 75 ? '#4A7C3A' : progressPct >= 40 ? '#B88A2C' : '#B45441';
+
+  let recHtml = '';
+  if (wrong.length >= 3) {
+    const overN = wrong.filter(r => r.predStatus === 'green').length;
+    const underN = wrong.filter(r => r.predStatus === 'red').length;
+    if (overN > underN) {
+      recHtml = `<div style="padding:10px 12px;background:#FDF3F0;border-left:3px solid #B45441;border-radius:4px;font-size:13px;color:#4A3F35;margin-top:8px">
+        💡 Модель чаще <strong>завышает</strong> (${overN} раз). При достаточном объёме данных рекомендуется поднять порог «зелёного» с 70 до 75–78 в <code>config.js</code>.
+      </div>`;
+    } else if (underN > overN) {
+      recHtml = `<div style="padding:10px 12px;background:#FFF8EC;border-left:3px solid #D29A3C;border-radius:4px;font-size:13px;color:#4A3F35;margin-top:8px">
+        💡 Модель чаще <strong>занижает</strong> (${underN} раз). При достаточном объёме данных рекомендуется снизить порог «зелёного» с 70 до 63–67 в <code>config.js</code>.
+      </div>`;
+    }
+  }
+
+  container.innerHTML = `
+    <h3 style="margin-bottom:4px">Точность модели</h3>
+    <p style="font-size:13px;color:#8A7C6B;margin-bottom:16px">Накапливай поездки — модель накапливает знания. Для надёжной калибровки нужно ~${TARGET_N} записей.</p>
+
+    <div style="background:#FDFAF6;border:1px solid #EDE8DF;border-radius:10px;padding:14px 16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+        <span style="font-size:14px;font-weight:600;color:#4A3F35">Накоплено данных</span>
+        <span style="font-size:13px;color:${progressColor};font-weight:600">${totalN} / ${TARGET_N} поездок</span>
+      </div>
+      <div style="height:8px;background:#EDE8DF;border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${progressPct}%;background:${progressColor};border-radius:4px;transition:width 0.4s"></div>
+      </div>
+      ${totalN < TARGET_N ? `<div style="margin-top:8px;font-size:12px;color:#8A7C6B">Ещё ${TARGET_N - totalN} поездок до уверенной калибровки. Логируй каждый поход — включая пустые!</div>` : ''}
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="flex:1;min-width:100px;background:#EAF4E0;border-radius:8px;padding:10px 12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#4A7C3A">${correct.length}</div>
+        <div style="font-size:11px;color:#4A7C3A">✓ верно</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:#FDF0EC;border-radius:8px;padding:10px 12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#B45441">${wrong.length}</div>
+        <div style="font-size:11px;color:#B45441">✗ ошиблась</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:#F5F0E8;border-radius:8px;padding:10px 12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#8A7C6B">${borderline.length}</div>
+        <div style="font-size:11px;color:#8A7C6B">~ жёлтый</div>
+      </div>
+      ${accPct !== null ? `<div style="flex:1;min-width:100px;background:#F7F3EE;border-radius:8px;padding:10px 12px;text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#4A3F35">${accPct}%</div>
+        <div style="font-size:11px;color:#6B5F52">точность</div>
+      </div>` : ''}
+    </div>
+    ${recHtml}
+
+    <div style="background:#FDFAF6;border:1px solid #EDE8DF;border-radius:10px;padding:14px 16px;margin-bottom:16px">
+      <h4 style="margin:0 0 12px">Матрица предсказания</h4>
+      ${matHtml}
+      <div style="margin-top:8px;font-size:11px;color:#A89880">Зелёный фон = правильное предсказание. Красный = ошибка. Жёлтый = пограничная зона.</div>
+    </div>
+
+    <div style="background:#FDFAF6;border:1px solid #EDE8DF;border-radius:10px;padding:14px 16px;margin-bottom:16px">
+      <h4 style="margin:0 0 12px">Смещение по видам</h4>
+      ${spHtml}
+    </div>
+
+    <div style="background:#FDFAF6;border:1px solid #EDE8DF;border-radius:10px;padding:14px 16px">
+      <h4 style="margin:0 0 12px">✗ Журнал расхождений <span style="font-size:12px;font-weight:400;color:#8A7C6B">(только ошибки модели)</span></h4>
+      ${errorHtml}
+    </div>`;
+}
+
+// =========================
 // Phenology calendar
 // =========================
 function renderPhenologyCalendar() {
@@ -1853,6 +2087,7 @@ function switchTab(name) {
   if (name === 'locations') renderLocations();
   if (name === 'days') renderDays();
   if (name === 'patterns') renderPatterns();
+  if (name === 'calibration') renderCalibration();
 }
 
 function attachEventHandlers() {
@@ -1947,6 +2182,7 @@ function renderAll() {
   renderLocations();
   renderDays();
   renderPatterns();
+  renderCalibration();
 }
 
 // Expose for inline onclick= handlers
