@@ -1232,17 +1232,19 @@ function deleteLocation(id) {
 // =========================
 // Day score preview (in form, before saving)
 // =========================
-async function previewDayScore(date, locId) {
+async function previewDayScore(date, locId, cachedConditions = null) {
   const box = document.getElementById('dayScorePreview');
   if (!box) return;
   if (!date || !locId) { box.style.display = 'none'; return; }
   const loc = state.locations.find(l => l.id === locId);
   if (!loc) return;
   box.style.display = '';
-  box.className = 'score-preview-box loading';
-  box.innerHTML = `Считаю score за ${date}…`;
+  if (!cachedConditions) {
+    box.className = 'score-preview-box loading';
+    box.innerHTML = `Считаю score за ${date}…`;
+  }
   try {
-    const c = await fetchHistoricalConditions(loc.lat, loc.lon, date);
+    const c = cachedConditions || await fetchHistoricalConditions(loc.lat, loc.lon, date);
     if (!c) {
       box.className = 'score-preview-box err';
       box.innerHTML = 'Нет архивных данных за эту дату (доступно с 1940 по вчера)';
@@ -1414,6 +1416,7 @@ function openDayForm(id) {
     wireSpeciesCheckboxes('daySpecies');
     const dateInput = document.getElementById('dayDate');
     const locSelect = document.getElementById('dayLoc');
+    // On date/loc change — always fetch fresh; on initial open — use cached conditions
     const refreshPreview = () => previewDayScore(dateInput.value, locSelect.value);
     dateInput.addEventListener('change', refreshPreview);
     locSelect.addEventListener('change', refreshPreview);
@@ -1428,8 +1431,8 @@ function openDayForm(id) {
         }
       });
     });
-    // Auto-show preview on open
-    refreshPreview();
+    // Auto-show preview on open — use cached conditions if available (avoids API call)
+    previewDayScore(dateInput.value, locSelect.value, existing?.conditions || null);
   }, 0);
 }
 
