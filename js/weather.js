@@ -2,6 +2,27 @@
 import { CONFIG } from './config.js';
 
 /**
+ * Serialised fetch wrapper for open-meteo.
+ * All requests share a single promise-chain (_omQueue) so they execute one at a time,
+ * preventing "Too many concurrent requests" on the free tier.
+ * A one-shot retry (after 2 s) is kept as an extra safety net.
+ */
+let _omQueue = Promise.resolve();
+function omFetch(url) {
+  const req = _omQueue.then(async () => {
+    const data = await fetch(url).then(r => r.json());
+    if (data?.error && data?.reason === 'Too many concurrent requests') {
+      await new Promise(r => setTimeout(r, 2000));
+      return fetch(url).then(r => r.json());
+    }
+    return data;
+  });
+  // Don't let a failed request block subsequent ones
+  _omQueue = req.catch(() => {});
+  return req;
+}
+
+/**
  * Antecedent Precipitation Index (API) — затухающий индекс осадков.
  * API_t = λ * API_{t-1} + P_{t-1}   (где P — осадки предыдущего дня)
  * λ=0.90 → период полураспада ≈ 6.6 дней (суглинок, Пухович)
@@ -35,8 +56,8 @@ export async function fetchWeather(lat, lon) {
   const forecastUrl = `${CONFIG.endpoints.openMeteoForecast}?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,wind_speed_10m_max,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&past_days=1&forecast_days=14&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
   const [archive, forecast] = await Promise.all([
-    fetch(archiveUrl).then(r => r.json()),
-    fetch(forecastUrl).then(r => r.json())
+    omFetch(archiveUrl),
+    omFetch(forecastUrl)
   ]);
 
   const histRain = archive.daily.precipitation_sum;
@@ -86,7 +107,7 @@ export async function fetchHistSeries(lat, lon, endDate, lookbackDays = 60) {
     `&start_date=${dayStr(start)}&end_date=${endDate}` +
     `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum` +
     `&timezone=${encodeURIComponent(CONFIG.timezone)}`;
-  const data = await fetch(url).then(r => r.json());
+  const data = await omFetch(url);
   const d = data.daily;
   if (!d?.time?.length) return null;
   return {
@@ -116,7 +137,7 @@ export async function fetchTriggerWindow(lat, lon, tripDate, maxLagDays = 16) {
     `soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean` +
     `&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
-  const data = await fetch(url).then(r => r.json());
+  const data = await omFetch(url);
   const d = data.daily;
   if (!d?.time?.length) return {};
 
@@ -152,14 +173,8 @@ export async function fetchHistoricalConditions(lat, lon, date) {
 
   const url = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}&start_date=${dayStr(start)}&end_date=${date}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean,relative_humidity_2m_mean&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
-  // Retry при rate-limit (free tier open-meteo limit)
-  let data;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise(r => setTimeout(r, 1200 * attempt));
-    data = await fetch(url).then(r => r.json());
-    if (!data.error) break;
-    if (data.reason !== 'Too many concurrent requests') break; // другая ошибка — не ретраить
-  }
+  // omFetch сериализует все запросы к open-meteo — rate-limit исключён по архитектуре
+  const data = await omFetch(url);
 
   const daily = data.daily;
   if (!daily?.time?.length) {
