@@ -1275,16 +1275,17 @@ function renderDays() {
       let triggerRows = '';
 
       if (d.triggerConditions && d.species?.length) {
-        // Score each species from its own trigger day conditions, applying WFI if stored
+        // Score each species from its own trigger day conditions.
+        // WFI is NOT applied here — historical trips have a known outcome,
+        // WFI belongs in the forecast (predicting the future), not retroactive analysis.
+        // WFI is stored for diagnostics and shown only when < 0.5 (hard refractory evidence).
         const spScores = d.species
           .map(sp => {
             const tc = d.triggerConditions[sp];
             if (!tc) return null;
-            const rawScore = scoreFromConditions(tc, sp);
-            const wfi = tc.wfi ?? 1.0;
-            const score = Math.max(0, Math.min(100, Math.round(rawScore * wfi)));
+            const score = scoreFromConditions(tc, sp);
             const st = statusFromScore(score);
-            return { sp, score, st, triggerDate: tc.triggerDate, wfi };
+            return { sp, score, st, triggerDate: tc.triggerDate, wfi: tc.wfi };
           })
           .filter(Boolean)
           .sort((a, b) => b.score - a.score);
@@ -1294,8 +1295,10 @@ function renderDays() {
           predStatus = spScores[0].st;
           triggerRows = `<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">` +
             spScores.map(s => {
-              const wfiTag = (s.wfi !== undefined && s.wfi < 0.99)
-                ? `&nbsp;<span title="Wave Freshness Index" style="color:#A89880;font-size:9px">WFI:${s.wfi.toFixed(2)}</span>`
+              // Show WFI tag only when it's meaningfully low (<0.5) — real refractory/incubation signal.
+              // noTriggerWFI=0.65 means "no evidence" and is not shown to avoid noise.
+              const wfiTag = (s.wfi !== undefined && s.wfi < 0.5)
+                ? `&nbsp;<span title="Волна на спаде/отдыхает (WFI=${s.wfi.toFixed(2)})" style="color:#B45441;font-size:9px">⚠ WFI:${s.wfi.toFixed(2)}</span>`
                 : '';
               return `<span style="font-size:10px;color:#6B5F52">${s.sp}:&nbsp;<span class="score-pill ${s.st}" style="font-size:9px;padding:1px 5px">${s.score}</span>&nbsp;<span style="color:#A89880">← ${s.triggerDate}</span>${wfiTag}</span>`;
             }).join('') + `</div>`;
