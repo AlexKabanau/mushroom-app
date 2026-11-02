@@ -74,9 +74,9 @@ export const CONFIG = {
         moistWilt: 0.17, moistOptLow: 0.25, moistOptHigh: 0.37, moistSat: 0.43,
         rain10dMin: 8, rain10dMax: 60,
       },
-      peakMonths: [8, 9], // Andrew 2018: пик 3-4 сент, начало с конца авг
+      peakMonths: [7, 8, 9], // Andrew 2018: пик 3-4 сент; iNat Belarus: июл=50% rel → добавлен
       lagDays: 7,
-      note: "Осинник. Триггер — пожелтение осины. Пик: авг–сент.",
+      note: "Осинник. Триггер — пожелтение осины. Пик: июл–сент.",
     },
     подберёзовик: {
       emoji: "🍄",
@@ -93,9 +93,9 @@ export const CONFIG = {
         moistWilt: 0.15, moistOptLow: 0.22, moistOptHigh: 0.40, moistSat: 0.46,
         rain10dMin: 6, rain10dMax: 70,
       },
-      peakMonths: [8, 9, 10],
+      peakMonths: [7, 8, 9, 10], // iNat Belarus: июл=54% rel (31obs), длинный сезон подтверждён
       lagDays: 6,
-      note: "Берёзняк. Самый длинный сезон: июнь–октябрь.",
+      note: "Берёзняк. Самый длинный сезон: июль–октябрь.",
     },
     белый: {
       emoji: "🍄",
@@ -112,9 +112,9 @@ export const CONFIG = {
         moistWilt: 0.18, moistOptLow: 0.26, moistOptHigh: 0.38, moistSat: 0.44,
         rain10dMin: 5, rain10dMax: 65,
       },
-      peakMonths: [9], // Andrew 2018: пик 12 сент, подтверждено
-      lagDays: 10,     // Bielefeld: пик корреляции осадков на lag=10, подтверждено данными
-      note: "Ельник/смешанный. Лаг 10 дней подтверждён данными. Пик: сент.",
+      peakMonths: [8, 9], // Andrew 2018: пик 12 сент; iNat Belarus: авг=95% rel (99obs) ≈ сен=100% → два равных слоя
+      lagDays: 10,        // Bielefeld: пик корреляции осадков на lag=10, подтверждено данными
+      note: "Ельник/смешанный. Лаг 10 дней подтверждён данными. Пик: авг–сент.",
     },
     лисичка: {
       emoji: "🍄",
@@ -131,10 +131,11 @@ export const CONFIG = {
         moistWilt: 0.20, moistOptLow: 0.28, moistOptHigh: 0.44, moistSat: 0.48,
         rain10dMin: 14, rain10dMax: 80,
       },
-      peakMonths: [8], // Andrew 2018: пик 19-20 авг, июль почти пустой
+      peakMonths: [7, 8], // iNat Belarus: июл=100% (132obs!!) >> авг=41% — ГЛАВНЫЙ пик июль, не август
+                          // Andrew 2018 показал авг 19-20 пик, но iNat (n=283) чётко указывает на июль
       lagDays: 12,
       noTriggerWFI: 0.90, // летний вид — нет холодового шока, дождь+тепло = триггер
-      note: "Летний вид. Ель+берёза+мох. Пик: август.",
+      note: "Летний вид. Ель+берёза+мох. Пик: июль–август.",
     },
     маслёнок: {
       emoji: "🍄",
@@ -285,9 +286,9 @@ export const CONFIG = {
         moistWilt: 0.17, moistOptLow: 0.24, moistOptHigh: 0.40, moistSat: 0.45,
         rain10dMin: 8, rain10dMax: 65,
       },
-      peakMonths: [9, 10], // Andrew 2018 (Imleria badia): пик 19-21 сент, август слабый
+      peakMonths: [8, 9, 10], // Andrew 2018: пик 19-21 сент; iNat Belarus: авг=42% rel (36obs) значимый
       lagDays: 8,
-      note: "Ель, сосна, старые посадки. Пик: сент–окт.",
+      note: "Ель, сосна, старые посадки. Пик: авг–окт.",
     },
   },
 
