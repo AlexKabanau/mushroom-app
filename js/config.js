@@ -33,7 +33,7 @@ export const CONFIG = {
   // Scoring thresholds — можно подкрутить после валидации
   scoring: {
     soilT: { ok: [8, 14], fair: [5, 17] },
-    soilM: { ok: [0.25, 0.4], fair: [0.2, 0.45] },
+    soilM: { ok: [0.25, 0.37], fair: [0.2, 0.43] }, // гипоксия болетовых на суглинке >0.37 (M2+M4)
     rain10d: { ok: [20, 55], fair: [11, 75] }, // 14-day window (×1.4 vs old 10-day)
     tMax: { ok: [10, 20], fair: [6, 24] },
     tMin: { ok: 2, fair: -2 },
@@ -63,7 +63,7 @@ export const CONFIG = {
       emoji: "🍄",
       scoring: {
         soilT: { ok: [10, 15], fair: [8, 18] },
-        soilM: { ok: [0.25, 0.38], fair: [0.2, 0.43] },
+        soilM: { ok: [0.25, 0.37], fair: [0.2, 0.43] }, // гипоксия
         rain10d: { ok: [20, 55], fair: [14, 70] },
         tMax: { ok: [12, 20], fair: [8, 24] },
         tMin: { ok: 4, fair: 1 },
@@ -82,7 +82,7 @@ export const CONFIG = {
       emoji: "🍄",
       scoring: {
         soilT: { ok: [8, 18], fair: [6, 22] },
-        soilM: { ok: [0.22, 0.4], fair: [0.18, 0.45] },
+        soilM: { ok: [0.22, 0.37], fair: [0.18, 0.43] }, // гипоксия на суглинке >0.37
         rain10d: { ok: [22, 58], fair: [11, 72] }, // было 17 → 22: single-burst rain после засухи не даёт волну (Oct 2026 кейс)
         tMax: { ok: [10, 22], fair: [6, 26] },
         tMin: { ok: 3, fair: -1 },
@@ -101,7 +101,7 @@ export const CONFIG = {
       emoji: "🍄",
       scoring: {
         soilT: { ok: [8, 13], fair: [6, 16] },
-        soilM: { ok: [0.26, 0.4], fair: [0.2, 0.44] },
+        soilM: { ok: [0.26, 0.37], fair: [0.2, 0.42] }, // гипоксия на суглинке >0.37
         rain10d: { ok: [11, 63], fair: [6, 78] }, // 14-day window; Bielefeld fair[0]=4mm×1.4=5.6→6
         tMax: { ok: [12, 21], fair: [8, 24] },   // Bielefeld: rollT оптим. 9-17°C → tMax до 22
         tMin: { ok: 4, fair: 1 },
@@ -141,7 +141,7 @@ export const CONFIG = {
       emoji: "🍄",
       scoring: {
         soilT: { ok: [14, 20], fair: [10, 24] },
-        soilM: { ok: [0.22, 0.4], fair: [0.18, 0.45] },
+        soilM: { ok: [0.22, 0.37], fair: [0.18, 0.43] }, // гипоксия на суглинке >0.37
         rain10d: { ok: [21, 63], fair: [14, 77] },
         tMax: { ok: [14, 22], fair: [10, 26] },
         tMin: { ok: 8, fair: 4 },
@@ -256,7 +256,7 @@ export const CONFIG = {
       emoji: "🍄",
       scoring: {
         soilT: { ok: [10, 18], fair: [8, 22] },
-        soilM: { ok: [0.24, 0.42], fair: [0.18, 0.46] },
+        soilM: { ok: [0.24, 0.37], fair: [0.18, 0.42] }, // гипоксия на суглинке >0.37
         rain10d: { ok: [21, 63], fair: [14, 77] },
         tMax: { ok: [12, 22], fair: [8, 26] },
         tMin: { ok: 5, fair: 2 },
@@ -275,7 +275,7 @@ export const CONFIG = {
       emoji: "🍄",
       scoring: {
         soilT: { ok: [10, 16], fair: [8, 19] },
-        soilM: { ok: [0.24, 0.4], fair: [0.18, 0.44] },
+        soilM: { ok: [0.24, 0.37], fair: [0.18, 0.42] }, // гипоксия на суглинке >0.37
         rain10d: { ok: [21, 58], fair: [14, 72] },
         tMax: { ok: [12, 20], fair: [8, 24] },
         tMin: { ok: 4, fair: 1 },
