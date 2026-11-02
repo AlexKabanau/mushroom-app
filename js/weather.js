@@ -154,8 +154,11 @@ export async function fetchHistoricalConditions(lat, lon, date) {
 
   const data = await fetch(url).then(r => r.json());
   const daily = data.daily;
-  const n = daily.time.length;
-  if (n === 0) return null;
+  if (!daily?.time?.length) {
+    // API вернул ошибку или пустой ответ
+    const reason = data.reason || data.error || JSON.stringify(data).slice(0, 120);
+    throw new Error(`open-meteo archive: ${reason}`);
+  }
 
   const dayIdx = daily.time.indexOf(date);
   if (dayIdx < 0) return null;
@@ -172,12 +175,13 @@ export async function fetchHistoricalConditions(lat, lon, date) {
     .filter(t => t != null && t < 0).length;
 
   return {
-    soilM: parseFloat(daily.soil_moisture_7_to_28cm_mean[dayIdx]?.toFixed(3) ?? 0),
-    soilT: parseFloat(daily.soil_temperature_7_to_28cm_mean[dayIdx]?.toFixed(1) ?? 0),
+    date:   date,  // для фотопериода в scoreFromConditions
+    soilM:  parseFloat(daily.soil_moisture_7_to_28cm_mean[dayIdx]?.toFixed(3) ?? 0),
+    soilT:  parseFloat(daily.soil_temperature_7_to_28cm_mean[dayIdx]?.toFixed(1) ?? 0),
     rain10d: parseFloat(last10Rain.toFixed(1)),
     rain30d: parseFloat(last30Rain.toFixed(1)),
-    tMax: parseFloat(daily.temperature_2m_max[dayIdx]?.toFixed(1) ?? 0),
-    tMin: parseFloat(daily.temperature_2m_min[dayIdx]?.toFixed(1) ?? 0),
+    tMax:   parseFloat(daily.temperature_2m_max[dayIdx]?.toFixed(1) ?? 0),
+    tMin:   parseFloat(daily.temperature_2m_min[dayIdx]?.toFixed(1) ?? 0),
     humidity: Math.round(daily.relative_humidity_2m_mean?.[dayIdx] ?? 0),
     dryDaysIn30,
     frostCount
