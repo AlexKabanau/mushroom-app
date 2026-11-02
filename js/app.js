@@ -1295,10 +1295,10 @@ function renderDays() {
           predStatus = spScores[0].st;
           triggerRows = `<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">` +
             spScores.map(s => {
-              // Show WFI tag only when it's meaningfully low (<0.5) — real refractory/incubation signal.
-              // noTriggerWFI=0.65 means "no evidence" and is not shown to avoid noise.
-              const wfiTag = (s.wfi !== undefined && s.wfi < 0.5)
-                ? `&nbsp;<span title="Волна на спаде/отдыхает (WFI=${s.wfi.toFixed(2)})" style="color:#B45441;font-size:9px">⚠ WFI:${s.wfi.toFixed(2)}</span>`
+              // WFI warning only on EMPTY trips (quantity='none') with low WFI (<0.5).
+              // On successful trips, the wave was clearly active — WFI warnings are false alarms.
+              const wfiTag = (isBlank && s.wfi !== undefined && s.wfi < 0.5)
+                ? `&nbsp;<span title="Волна была на спаде/отдыхала (WFI=${s.wfi.toFixed(2)})" style="color:#B45441;font-size:9px">⚠ WFI:${s.wfi.toFixed(2)}</span>`
                 : '';
               return `<span style="font-size:10px;color:#6B5F52">${s.sp}:&nbsp;<span class="score-pill ${s.st}" style="font-size:9px;padding:1px 5px">${s.score}</span>&nbsp;<span style="color:#A89880">← ${s.triggerDate}</span>${wfiTag}</span>`;
             }).join('') + `</div>`;
