@@ -33,6 +33,11 @@ nav.tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 1px soli
 .verdict.red .verdict-dot { background: #B45441; }
 .verdict-text h2 { margin: 0 0 4px; font-size: 22px; font-weight: 600; font-family: Georgia, serif; }
 .verdict-text p { margin: 0; font-size: 14px; color: #4A3F35; }
+.verdict-components { display: flex; align-items: center; gap: 6px; margin: 4px 0 7px; flex-wrap: wrap; }
+.vc-item { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; background: rgba(0,0,0,0.05); border-radius: 20px; padding: 2px 10px; }
+.vc-item b { font-size: 14px; }
+.vc-sep { color: #A89880; font-size: 13px; }
+.vc-action { font-size: 13px; color: #4A3F35; margin-top: 5px; }
 
 .location-bar { display: flex; align-items: center; justify-content: space-between; background: white; border: 1px solid #E6DECC; border-radius: 8px; padding: 12px 18px; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
 .location-bar label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #8A7C6B; margin-right: 10px; }
@@ -427,6 +432,8 @@ footer a { color: #4A7C3A; }
     & .verdict.red   { background: #2A1510; border-color: #6A3020; }
     & .verdict-text p { color: #C4B8A8; }
     & .verdict-text h2 { color: #EDE8DC; }
+    & .vc-item { background: rgba(255,255,255,0.08); }
+    & .vc-action { color: #C4B8A8; }
     & input, & select, & textarea { background: #2A2218; border-color: #4A3E30; color: #EDE8DC; }
     & input::placeholder, & textarea::placeholder { color: #6B5F52; }
     & .card-label, & .card-note, & .loc-info, & .meta, & .wt-lag,

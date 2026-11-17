@@ -924,18 +924,74 @@ function renderDashboard() {
   const displaySpeciesName = bestSpecies ? bestSpecies.species : null;
 
   let title, body;
-  if (displayStatus === 'green') {
-    const speciesNote = displaySpeciesName ? ` · <em>${displaySpeciesName}${bestSpecies.isPeak ? ' 🌟 пиковый месяц' : ''}</em>` : '';
-    title = `Ехать. ${greenAhead} зелёных дня впереди`;
-    body = `Все факторы соблюдены${speciesNote}. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя за 14 дн — ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
-  } else if (displayStatus === 'yellow') {
-    const speciesNote = displaySpeciesName ? ` · ${displaySpeciesName}` : '';
-    title = `Можно, но средне${speciesNote}`;
-    body = `Условия пограничные. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя 14дн ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
+  const compEl = document.getElementById('verdictComponents');
+
+  if (bestSpecies && todayHealth !== null) {
+    const trigSt  = statusFromScore(bestSpecies.score);
+    const hlthSt  = statusFromScore(todayHealth);
+    const em = { green: '🟢', yellow: '🟡', red: '🔴' };
+    const spNote = `${bestSpecies.species}${bestSpecies.isPeak ? ' 🌟' : ''}`;
+    const lag = CONFIG.speciesConfig?.[bestSpecies.species]?.lagDays ?? 7;
+
+    if (compEl) {
+      compEl.style.display = '';
+      compEl.innerHTML =
+        `<div class="verdict-components">` +
+        `<span class="vc-item">🌊 Волна &nbsp;<b>${bestSpecies.score}</b> ${em[trigSt]}</span>` +
+        `<span class="vc-sep"> · </span>` +
+        `<span class="vc-item">🌿 Сейчас &nbsp;<b>${todayHealth}</b> ${em[hlthSt]}</span>` +
+        `</div>`;
+    }
+
+    if (trigSt === 'green' && hlthSt === 'green') {
+      // Пик: обе составляющие хорошие
+      title = 'Пик — ехать';
+      const winDays = greenAhead >= 2
+        ? `Окно: сегодня + ещё ${greenAhead - 1} ${greenAhead - 1 === 1 ? 'день' : 'дня'}`
+        : 'Сегодня лучший день';
+      body = `<span class="vc-action">${winDays} · <em>${spNote}</em></span>`;
+
+    } else if (trigSt === 'green' && hlthSt === 'yellow') {
+      // Волна идёт, условия ухудшаются
+      title = 'Волна угасает — торопись';
+      body = `<span class="vc-action">Ехать сегодня или завтра · <em>${spNote}</em></span>`;
+
+    } else if (trigSt === 'green' && hlthSt === 'red') {
+      // Волна почти закончилась
+      title = 'Волна на исходе';
+      body = `<span class="vc-action">Последний шанс этой волны · <em>${spNote}</em></span>`;
+
+    } else if (trigSt !== 'green' && hlthSt === 'green') {
+      // Хорошие условия, но волны нет или она ещё не пошла
+      if (todayScore.rain10d >= 15) {
+        title = 'Рано — волна ещё не пошла';
+        body = `<span class="vc-action">Дождь свежий, ждать ещё ~${lag} дней · <em>${spNote}</em></span>`;
+      } else {
+        title = 'Нужны осадки';
+        body = `<span class="vc-action">Условия хороши, но дождей не было · <em>${spNote}</em></span>`;
+      }
+
+    } else {
+      // Обе составляющие слабые
+      title = displayStatus === 'yellow' ? 'Условия пограничные' : 'Пока не стоит';
+      body = `<span class="vc-action">Лучший день: <strong>${bestLabel}</strong> (${bestScore}) · <em>${spNote}</em></span>`;
+    }
+
   } else {
-    title = 'Пока не стоит';
-    body = `Score сегодня ${displayScore}. Лучший день впереди: <strong>${bestLabel}</strong> (score ${bestScore}).`;
+    // Нет настроенных видов — базовый режим без разбивки
+    if (compEl) compEl.style.display = 'none';
+    if (displayStatus === 'green') {
+      title = `Ехать. ${greenAhead} зелёных дня впереди`;
+      body = `Все факторы соблюдены. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}). Σ дождя ${todayScore.rain10d} мм, T почвы ${todayScore.soilT} °C.`;
+    } else if (displayStatus === 'yellow') {
+      title = 'Можно, но средне';
+      body = `Условия пограничные. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}).`;
+    } else {
+      title = 'Пока не стоит';
+      body = `Score сегодня ${displayScore}. Лучший день: <strong>${bestLabel}</strong> (score ${bestScore}).`;
+    }
   }
+
   document.getElementById('heroVerdict').className = `verdict ${displayStatus}`;
   document.getElementById('verdictDot').textContent = displayStatus === 'green' ? '▲' : displayStatus === 'yellow' ? '●' : '✕';
   document.getElementById('verdictTitle').textContent = title;
