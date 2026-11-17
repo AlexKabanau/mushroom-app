@@ -1245,7 +1245,7 @@ function deleteLocation(id) {
 // =========================
 // Day score preview (in form, before saving)
 // =========================
-async function previewDayScore(date, locId, cachedConditions = null) {
+async function previewDayScore(date, locId, cachedConditions = null, existingDay = null) {
   const box = document.getElementById('dayScorePreview');
   if (!box) return;
   if (!date || !locId) { box.style.display = 'none'; return; }
@@ -1280,8 +1280,29 @@ async function previewDayScore(date, locId, cachedConditions = null) {
     box.className = `score-preview-box ${status}`;
     const tm20str = c.tMean20d != null ? ` · Tfон ${c.tMean20d}°` : '';
     const r26str  = c.rain26d  != null ? ` · P26д ${c.rain26d} мм` : '';
-    box.innerHTML = `<div class="score-preview-title">${emoji} ${score} баллов · ${label}</div>
+
+    // If day has trigger conditions, show best trigger score as context
+    let triggerHtml = '';
+    if (existingDay?.triggerConditions && existingDay?.species?.length) {
+      const spScores = existingDay.species
+        .map(sp => {
+          const tc = existingDay.triggerConditions[sp];
+          if (!tc) return null;
+          const s = scoreFromConditions(tc, sp);
+          return { sp, score: s, st: statusFromScore(s), triggerDate: tc.triggerDate };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.score - a.score);
+      if (spScores.length) {
+        const best = spScores[0];
+        const em = { green: '🟢', yellow: '🟡', red: '🔴' }[best.st];
+        triggerHtml = `<div class="score-preview-trigger">🎯 Лучший триггер: <b>${best.sp} ${em} ${best.score}</b>${best.triggerDate ? ` · ${best.triggerDate}` : ''} — это число на карточке</div>`;
+      }
+    }
+
+    box.innerHTML = `<div class="score-preview-title">${emoji} ${score} баллов · ${label} <span class="score-preview-note">(условия дня похода)</span></div>
       <div class="score-preview-sub">T почвы ${c.soilT}° · влажн. ${c.soilM} · Σ14д ${c.rain10d} мм · T возд. ${c.tMax}/${c.tMin}°${tm20str}${r26str}</div>
+      ${triggerHtml}
       ${verdictHtml}`;
   } catch(e) {
     box.className = 'score-preview-box err';
@@ -1447,7 +1468,7 @@ function openDayForm(id) {
       });
     });
     // Auto-show preview on open — use cached conditions if available (avoids API call)
-    previewDayScore(dateInput.value, locSelect.value, existing?.conditions || null);
+    previewDayScore(dateInput.value, locSelect.value, existing?.conditions || null, existing || null);
   }, 0);
 }
 

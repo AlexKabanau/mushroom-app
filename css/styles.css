@@ -228,7 +228,9 @@ textarea.sync-box { font-family: SFMono-Regular, Menlo, Consolas, monospace; fon
 .score-preview-box.yellow { background: #FBF3DF; border-color: #E2CA8E; }
 .score-preview-box.red { background: #F6E3DE; border-color: #D9A99A; }
 .score-preview-title { font-size: 14px; font-weight: 600; }
+.score-preview-note { font-size: 11px; font-weight: 400; color: #8A7C6B; }
 .score-preview-sub { font-size: 11px; color: #6B5F52; margin-top: 4px; font-family: monospace; }
+.score-preview-trigger { font-size: 12px; color: #5A6A3A; background: rgba(74,124,58,0.07); border-radius: 6px; padding: 5px 9px; margin-top: 7px; }
 .score-preview-verdict { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
 .score-preview-verdict.ok { background: rgba(74, 124, 58, 0.12); color: #2A5A1C; }
 .score-preview-verdict.off { background: rgba(180, 84, 65, 0.12); color: #A04A3A; }
