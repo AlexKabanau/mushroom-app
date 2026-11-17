@@ -296,7 +296,8 @@ async function syncAllHistorical() {
     if (!loc) continue;
     try {
       const [c, triggerWindow, histSeries] = await Promise.all([
-        d.conditions ? Promise.resolve(null) : fetchHistoricalConditions(loc.lat, loc.lon, d.date),
+        // Re-fetch if conditions missing OR if new Bielefeld v2 fields not yet present
+        (d.conditions?.tMean20d != null) ? Promise.resolve(null) : fetchHistoricalConditions(loc.lat, loc.lon, d.date),
         fetchTriggerWindow(loc.lat, loc.lon, d.date),
         fetchHistSeries(loc.lat, loc.lon, d.date)
       ]);
@@ -962,11 +963,23 @@ function renderDashboard() {
   const triggered = todayScore.rain10d > 10 && todayScore.soilT < 14;
 
   const frostToday = todayScore.frostInLast7Days;
+  const tm20 = todayScore.tMean20d;
+  const r26  = todayScore.rain26d;
+  const tm20Class = tm20 == null ? 'warn'
+    : (tm20 >= 10 && tm20 <= 16) ? 'ok'
+    : (tm20 >= 7  && tm20 <= 19) ? 'warn'
+    : 'bad';
+  const r26Class = r26 == null ? 'warn'
+    : r26 >= 40 ? 'ok'
+    : r26 >= 20 ? 'warn'
+    : 'bad';
   document.getElementById('factorCards').innerHTML = `
     <div class="card"><div class="card-label">Осадки / 14 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 20–55 мм</div></div>
     <div class="card"><div class="card-label">Влажность почвы</div><div class="card-value status-${smClass}">${todayScore.soilM.toFixed(2)}</div><div class="card-note">оптимум 0,25–0,40</div></div>
     <div class="card"><div class="card-label">Темп. почвы</div><div class="card-value status-${stClass}">${todayScore.soilT} °C</div><div class="card-note">окно 8–14 °C</div></div>
     <div class="card"><div class="card-label">Заморозок</div><div class="card-value status-${frostToday ? 'ok' : 'warn'}">${frostToday ? '❄ Был' : '—'}</div><div class="card-note">триггер опят</div></div>
+    <div class="card"><div class="card-label">Т фон / 20 дней</div><div class="card-value status-${tm20Class}">${tm20 != null ? tm20 + ' °C' : '—'}</div><div class="card-note">оптимум 10–16 °C</div></div>
+    <div class="card"><div class="card-label">Осадки / 26 дней</div><div class="card-value status-${r26Class}">${r26 != null ? r26 + ' мм' : '—'}</div><div class="card-note">норма 40–120 мм</div></div>
   `;
 
   // Species breakdown
@@ -1265,8 +1278,10 @@ async function previewDayScore(date, locId, cachedConditions = null) {
       else verdictHtml = `<div class="score-preview-verdict neutral">~ Жёлтый — пограничный результат</div>`;
     }
     box.className = `score-preview-box ${status}`;
+    const tm20str = c.tMean20d != null ? ` · Tfон ${c.tMean20d}°` : '';
+    const r26str  = c.rain26d  != null ? ` · P26д ${c.rain26d} мм` : '';
     box.innerHTML = `<div class="score-preview-title">${emoji} ${score} баллов · ${label}</div>
-      <div class="score-preview-sub">T почвы ${c.soilT}° · влажн. ${c.soilM} · Σ14д ${c.rain10d} мм · T возд. ${c.tMax}/${c.tMin}°</div>
+      <div class="score-preview-sub">T почвы ${c.soilT}° · влажн. ${c.soilM} · Σ14д ${c.rain10d} мм · T возд. ${c.tMax}/${c.tMin}°${tm20str}${r26str}</div>
       ${verdictHtml}`;
   } catch(e) {
     box.className = 'score-preview-box err';

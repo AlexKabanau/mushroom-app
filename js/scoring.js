@@ -107,6 +107,25 @@ export function scoreFromConditions(c, speciesKey = null) {
   }
 
   // Засуха: штраф если большинство последних 30 дней были сухими
+  // Bielefeld v2: скользящие окна T_mean(20d) + P(26d) — средний фон осени
+  // Применяется только для трубчатых видов (не лисичка, не опёнок, не пластинчатые)
+  // Kasparavicius 2001, Büntgen 2015, Bielefeld bioRxiv (Zenodo 17881359)
+  const BOLETES_BIELEFELD = ['белый','подберёзовик','подосиновик','маслёнок','моховик','польский гриб','рыжик'];
+  if (BOLETES_BIELEFELD.includes(speciesKey)) {
+    if (c.tMean20d != null) {
+      if      (c.tMean20d >= 10 && c.tMean20d <= 16) score += 6;  // оптимальный осенний фон
+      else if (c.tMean20d >   7 && c.tMean20d <  10) score += 2;  // прохладно, но ок
+      else if (c.tMean20d >  16 && c.tMean20d <= 19) score -= 3;  // тепловатый фон
+      else if (c.tMean20d >  19)                      score -= 8;  // жаркий фон — угнетение
+      else if (c.tMean20d <=  7)                      score -= 5;  // слишком холодный фон
+    }
+    if (c.rain26d != null) {
+      if   (c.rain26d >= 40 && c.rain26d <= 120) score += 5;  // хороший фон
+      else if (c.rain26d <  20)                  score -= 6;  // засуха 26д
+      // 20–40 мм — нейтрально; >120 мм — soilM/dryDays уже покрывают
+    }
+  }
+
   // Büntgen 2015: засуха >3 недель подавляет плодоношение даже после дождей
   if (c.dryDaysIn30 != null) {
     if      (c.dryDaysIn30 > 24) score -= 15;   // >80% месяца — засуха
@@ -263,6 +282,18 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   const avg2 = slice2.length ? slice2.reduce((a, b) => a + b, 0) / slice2.length : null;
   const coldShockDelta = (avg1 !== null && avg2 !== null) ? parseFloat((avg1 - avg2).toFixed(1)) : 0;
 
+  // Bielefeld v2: T_mean(20d) — средний температурный фон за 20 дней
+  // Kasparavicius 2001, Büntgen 2015: medium-term temp average = strong predictor for boletes
+  const tMean20window = allTMean.slice(Math.max(0, endIdx - 19), endIdx + 1);
+  const tMean20d = tMean20window.length >= 5
+    ? parseFloat((tMean20window.reduce((a, b) => a + b, 0) / tMean20window.length).toFixed(1))
+    : null;
+
+  // P(26d) — суммарные осадки за 26 дней (Bielefeld bioRxiv: lag P26 = best rain predictor)
+  const allRain26 = [...(hist.rain || []), ...fc.rain.slice(0, idx + 1)];
+  const rain26window = allRain26.slice(Math.max(0, allRain26.length - 26));
+  const rain26d = parseFloat(rain26window.reduce((a, b) => a + (b || 0), 0).toFixed(1));
+
   const conditions = {
     soilT: parseFloat(st.toFixed(1)),
     soilM: parseFloat(sm.toFixed(3)),
@@ -276,7 +307,9 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     frostInLast7Days,
     frostCount,
     dryDaysIn30,
-    coldShockDelta   // для MDI cold shock trigger
+    coldShockDelta,  // для MDI cold shock trigger
+    tMean20d,        // Bielefeld v2: средний фон T за 20 дней
+    rain26d          // Bielefeld v2: суммарные осадки за 26 дней
   };
 
   const score = scoreFromConditions(conditions, speciesKey);
@@ -290,7 +323,9 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     frostInLast7Days,
     frostCount: conditions.frostCount,
     dryDaysIn30: conditions.dryDaysIn30,
-    coldShockDelta: conditions.coldShockDelta
+    coldShockDelta: conditions.coldShockDelta,
+    tMean20d,
+    rain26d
   };
 }
 

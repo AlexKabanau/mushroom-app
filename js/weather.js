@@ -198,6 +198,19 @@ export async function fetchHistoricalConditions(lat, lon, date) {
     .slice(Math.max(0, dayIdx - 9), dayIdx + 1)
     .filter(t => t != null && t < 0).length;
 
+  // Bielefeld v2: T_mean(20d) + P(26d)
+  const tMean20window = [];
+  for (let i = Math.max(0, dayIdx - 19); i <= dayIdx; i++) {
+    const mx = daily.temperature_2m_max[i];
+    const mn = daily.temperature_2m_min[i];
+    if (mx != null && mn != null) tMean20window.push((mx + mn) / 2);
+  }
+  const tMean20d = tMean20window.length >= 5
+    ? parseFloat((tMean20window.reduce((a, b) => a + b, 0) / tMean20window.length).toFixed(1))
+    : null;
+  const rain26window = daily.precipitation_sum.slice(Math.max(0, dayIdx - 25), dayIdx + 1);
+  const rain26d = parseFloat(rain26window.reduce((a, b) => a + (b || 0), 0).toFixed(1));
+
   return {
     date:   date,  // для фотопериода в scoreFromConditions
     soilM:  parseFloat(daily.soil_moisture_7_to_28cm_mean[dayIdx]?.toFixed(3) ?? 0),
@@ -208,6 +221,8 @@ export async function fetchHistoricalConditions(lat, lon, date) {
     tMin:   parseFloat(daily.temperature_2m_min[dayIdx]?.toFixed(1) ?? 0),
     humidity: Math.round(daily.relative_humidity_2m_mean?.[dayIdx] ?? 0),
     dryDaysIn30,
-    frostCount
+    frostCount,
+    tMean20d,
+    rain26d
   };
 }
