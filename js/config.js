@@ -135,6 +135,7 @@ export const CONFIG = {
                           // Andrew 2018 показал авг 19-20 пик, но iNat (n=283) чётко указывает на июль
       lagDays: 12,
       noTriggerWFI: 0.90, // летний вид — нет холодового шока, дождь+тепло = триггер
+      wave: { activeDays: 10, decayDays: 10, refractoryDays: 14 }, // долгий летний слой, быстрое восстановление
       note: "Летний вид. Ель+берёза+мох. Пик: июль–август.",
     },
     маслёнок: {
@@ -193,6 +194,7 @@ export const CONFIG = {
       peakMonths: [9, 10],
       lagDays: 4,
       specialRule: "frost", // +35% (MDI) / +15 (классика) если за 7 дней был мороз
+      wave: { activeDays: 5, decayDays: 4, refractoryDays: 22 }, // бурный взрыв, долгое восстановление
       note: "Пни, корни. Триггер — первые заморозки. Самый быстрый: 3–5 дней.",
     },
     "груздь настоящий": {
@@ -212,6 +214,7 @@ export const CONFIG = {
       },
       peakMonths: [8, 9],
       lagDays: 15,
+      wave: { activeDays: 10, decayDays: 9, refractoryDays: 22 }, // медленный долгий слой, тяжёлое восстановление
       note: "Берёза, нейтральные почвы. Лаг 14–20 дней, нужна высокая влажность.",
     },
     "чёрный груздь": {
@@ -231,6 +234,7 @@ export const CONFIG = {
       },
       peakMonths: [9, 10], // Andrew 2018: пик 21-24 сент, не август
       lagDays: 16,
+      wave: { activeDays: 10, decayDays: 9, refractoryDays: 22 }, // как груздь настоящий
       note: "Берёза у болот. Самые влажные условия из всех. Лаг 14–18 дней. Пик: сент–окт.",
     },
     волнушка: {
@@ -250,6 +254,7 @@ export const CONFIG = {
       },
       peakMonths: [9, 10], // Andrew 2018: пик 27-28 сент
       lagDays: 12,
+      wave: { activeDays: 9, decayDays: 8, refractoryDays: 20 }, // умеренно длиннее болетовых
       note: "Берёза, кислые почвы. Похожа на груздь, менее влажная. Пик: сент–окт.",
     },
     моховик: {

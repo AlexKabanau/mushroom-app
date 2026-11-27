@@ -490,10 +490,10 @@ export function detectTPVEvents(hist) {
  * Filter triggers: block any trigger that falls within the refractory window
  * of a previous valid trigger.
  * minGap = lagDays + activeDays + decayDays + floor(refractoryDays/2)
+ * W: wave config (global default or species-specific merge)
  */
-function filterValidTriggers(rawTriggers, lagDays) {
+function filterValidTriggers(rawTriggers, lagDays, W = CONFIG.wave) {
   if (!rawTriggers?.length) return [];
-  const W = CONFIG.wave;
   const minGap = lagDays + W.activeDays + W.decayDays + Math.floor(W.refractoryDays / 2);
   const sorted = [...rawTriggers].sort((a, b) => a.date.localeCompare(b.date));
   const valid = [];
@@ -508,9 +508,9 @@ function filterValidTriggers(rawTriggers, lagDays) {
 /**
  * WFI (0–1) for a single wave of waveAge days since its trigger date.
  * waveAge = daysBetween(triggerDate, displayDate)
+ * W: wave config (global default or species-specific merge)
  */
-function waveWFI(waveAge, lagDays) {
-  const W = CONFIG.wave;
+function waveWFI(waveAge, lagDays, W = CONFIG.wave) {
   if (waveAge < 0) return 0;
   if (waveAge < lagDays) return 0.35;                      // underground incubation
   const activeEnd = lagDays + W.activeDays;
@@ -527,20 +527,20 @@ function waveWFI(waveAge, lagDays) {
  * Compute WFI for a display date given detected ТВП triggers and lagDays.
  * Returns the best (highest) WFI from all valid triggers for this lagDays.
  * Falls back to noTriggerFallback (species-specific or CONFIG.wave.noTriggerWFI).
+ * W: wave config (global default or species-specific merge)
  */
-export function computeWFI(allTriggers, displayDate, lagDays, noTriggerFallback = null) {
-  const W = CONFIG.wave;
+export function computeWFI(allTriggers, displayDate, lagDays, noTriggerFallback = null, W = CONFIG.wave) {
   const fallback = noTriggerFallback ?? W.noTriggerWFI;
   if (!allTriggers?.length || !displayDate) return fallback;
 
-  const valid = filterValidTriggers(allTriggers, lagDays);
+  const valid = filterValidTriggers(allTriggers, lagDays, W);
   if (!valid.length) return fallback;
 
   let best = -1;
   for (const t of valid) {
     const age = daysBetween(t.date, displayDate);
     if (age < 0) continue;  // trigger is in the future of displayDate
-    const wfi = waveWFI(age, lagDays);
+    const wfi = waveWFI(age, lagDays, W);
     if (wfi > best) best = wfi;
   }
   return best >= 0 ? best : fallback;
@@ -550,21 +550,21 @@ export function computeWFI(allTriggers, displayDate, lagDays, noTriggerFallback 
  * Like computeWFI but returns detailed wave phase info for UI display.
  * Returns { wfi, phase, label, dayInPhase, totalDays, triggerDate }
  * Phases: 'incubation' | 'active' | 'decay' | 'refractory' | 'unknown'
+ * W: wave config (global default or species-specific merge)
  */
-export function computeWFIDetail(allTriggers, displayDate, lagDays, noTriggerFallback = null) {
-  const W = CONFIG.wave;
+export function computeWFIDetail(allTriggers, displayDate, lagDays, noTriggerFallback = null, W = CONFIG.wave) {
   const fallback = noTriggerFallback ?? W.noTriggerWFI;
   const noTrigger = { wfi: fallback, phase: 'unknown', label: '? нет данных о волне', dayInPhase: null, totalDays: null, triggerDate: null };
 
   if (!allTriggers?.length || !displayDate) return noTrigger;
-  const valid = filterValidTriggers(allTriggers, lagDays);
+  const valid = filterValidTriggers(allTriggers, lagDays, W);
   if (!valid.length) return noTrigger;
 
   let best = -1, bestTrigger = null;
   for (const t of valid) {
     const age = daysBetween(t.date, displayDate);
     if (age < 0) continue;
-    const wfi = waveWFI(age, lagDays);
+    const wfi = waveWFI(age, lagDays, W);
     if (wfi > best) { best = wfi; bestTrigger = { ...t, age }; }
   }
   if (best < 0 || !bestTrigger) return noTrigger;
@@ -653,10 +653,11 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
 
     // WFI: финальный множитель волнового жизненного цикла
     // triggers = null → WFI отключён; triggers = [] → fallback
-    // Используем species-specific noTriggerWFI если задан (напр. лисичка = 0.90)
+    // Видо-специфичные параметры волны: мержим глобальные с overrides из speciesConfig
     const spNoTrigger = cfg?.noTriggerWFI ?? null;
+    const spWave = cfg?.wave ? { ...CONFIG.wave, ...cfg.wave } : CONFIG.wave;
     const wfiDetail = (triggers !== null && displayDate)
-      ? computeWFIDetail(triggers, displayDate, lag, spNoTrigger)
+      ? computeWFIDetail(triggers, displayDate, lag, spNoTrigger, spWave)
       : null;
     const wfi = wfiDetail ? wfiDetail.wfi : null;
     const score = wfi !== null
