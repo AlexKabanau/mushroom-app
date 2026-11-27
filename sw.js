@@ -4,7 +4,7 @@
 //   JS files  → network-first (always fresh after deploy, no manual version bumps)
 //   Everything else → cache-first (fast loads, offline shell)
 //
-const CACHE = 'mushroom-v31';
+const CACHE = 'mushroom-v32';
 const SHELL_STATIC = [
   './',
   './index.html',

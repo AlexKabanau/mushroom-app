@@ -57,9 +57,15 @@ export async function fetchWeather(lat, lon) {
 
   const forecastUrl = `${CONFIG.endpoints.openMeteoForecast}?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,wind_speed_10m_max,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&past_days=1&forecast_days=14&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
-  const [archive, forecast] = await Promise.all([
+  const year = today.getFullYear();
+  const gddEnd = today.getMonth() >= 9 ? `${year}-09-30` : dayStr(yesterday); // Oct+ → use Sep 30 as final
+  const gddUrl = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}&start_date=${year}-05-01&end_date=${gddEnd}&daily=temperature_2m_max,temperature_2m_min&timezone=${encodeURIComponent(CONFIG.timezone)}`;
+
+  // All 3 requests are serialised by omFetch — no concurrent-request issues
+  const [archive, forecast, gddData] = await Promise.all([
     omFetch(archiveUrl),
-    omFetch(forecastUrl)
+    omFetch(forecastUrl),
+    omFetch(gddUrl)
   ]);
 
   const histRain = archive.daily.precipitation_sum;
@@ -73,6 +79,22 @@ export async function fetchWeather(lat, lon) {
     humidity: archive.daily.relative_humidity_2m_mean, // для VPD
     apiRain: computeAPIRain(histRain)            // затухающий индекс λ=0.90
   };
+
+  // Compute GDD (Growing Degree Days, base 5°C) from May 1 to end of September
+  // ΣT лета: накопленная тепловая сумма — предиктор объёма мицелия к осени
+  let gdd = null;
+  if (gddData?.daily?.temperature_2m_max?.length) {
+    let acc = 0;
+    const mx = gddData.daily.temperature_2m_max;
+    const mn = gddData.daily.temperature_2m_min;
+    for (let i = 0; i < mx.length; i++) {
+      if (mx[i] == null || mn[i] == null) continue;
+      acc += Math.max(0, (mx[i] + mn[i]) / 2 - 5);
+    }
+    gdd = Math.round(acc);
+  }
+  // Attach to hist so projectDayScore can read it without extra parameters
+  hist.gdd = gdd;
 
   // Forecast returns past_days=1 + 14 forecast days = 15 items. We want today onwards (10 days).
   const todayStr = dayStr(today);
@@ -91,7 +113,7 @@ export async function fetchWeather(lat, lon) {
   };
 
   return {
-    hist, fc,
+    hist, fc, gdd,
     elevation: forecast.elevation,
     asOf: todayStr
   };

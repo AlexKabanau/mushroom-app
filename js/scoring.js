@@ -126,6 +126,17 @@ export function scoreFromConditions(c, speciesKey = null) {
     }
   }
 
+  // ΣT лета (GDD): накопленная тепловая сумма май–сентябрь (база 5°C)
+  // Büntgen 2015, Boddy 2014: тёплое лето → высокий объём мицелия → богатая осень
+  // Применяется к болетовым — опёнок и лисичка менее зависимы от летнего фона
+  const GDD_BOLETES = ['белый','подберёзовик','подосиновик','маслёнок','моховик','польский гриб','рыжик'];
+  if (GDD_BOLETES.includes(speciesKey) && c.gdd != null) {
+    if      (c.gdd >= 1050) score += 4;   // тёплое/жаркое лето — хороший запас
+    else if (c.gdd >= 800)  score += 1;   // нормальное лето — нейтрально-лёгкий бонус
+    else if (c.gdd <  600)  score -= 5;   // холодное лето — слабый мицелий
+    // 600–800: нейтрально (прохладно, но достаточно)
+  }
+
   // VPD штраф: иссушение гименофора при высоком дефиците давления пара
   // Применяется к трубчатым + лисичка (не опёнок — ему безразлично)
   // ≥3 дней VPD > 1.2 кПа → шляпки пересыхают и волна угасает
@@ -335,7 +346,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     coldShockDelta,  // для MDI cold shock trigger
     vpdHighDays,     // VPD: дней за последние 7 с VPD > 1.2 кПа
     tMean20d,        // Bielefeld v2: средний фон T за 20 дней
-    rain26d          // Bielefeld v2: суммарные осадки за 26 дней
+    rain26d,         // Bielefeld v2: суммарные осадки за 26 дней
+    gdd: hist.gdd ?? null  // ΣT лета: GDD май–сент текущего года (база 5°C)
   };
 
   const score = scoreFromConditions(conditions, speciesKey);
@@ -352,7 +364,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     coldShockDelta: conditions.coldShockDelta,
     vpdHighDays,
     tMean20d,
-    rain26d
+    rain26d,
+    gdd: conditions.gdd
   };
 }
 

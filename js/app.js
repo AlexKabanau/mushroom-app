@@ -1022,6 +1022,7 @@ function renderDashboard() {
   const tm20 = todayScore.tMean20d;
   const r26  = todayScore.rain26d;
   const vpd  = todayScore.vpdHighDays;
+  const gdd  = todayScore.gdd ?? w.gdd ?? null;  // ΣT лета: GDD май–сент текущего года
   const tm20Class = tm20 == null ? 'warn'
     : (tm20 >= 10 && tm20 <= 16) ? 'ok'
     : (tm20 >= 7  && tm20 <= 19) ? 'warn'
@@ -1034,6 +1035,10 @@ function renderDashboard() {
     : vpd === 0 ? 'ok'
     : vpd <= 1  ? 'warn'
     : 'bad';
+  const gddClass = gdd == null ? 'warn'
+    : gdd >= 1050 ? 'ok'
+    : gdd >= 600  ? 'warn'
+    : 'bad';
   document.getElementById('factorCards').innerHTML = `
     <div class="card"><div class="card-label">Осадки / 14 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 20–55 мм</div></div>
     <div class="card"><div class="card-label">Влажность почвы</div><div class="card-value status-${smClass}">${todayScore.soilM.toFixed(2)}</div><div class="card-note">оптимум 0,25–0,40</div></div>
@@ -1042,6 +1047,7 @@ function renderDashboard() {
     <div class="card"><div class="card-label">Т фон / 20 дней</div><div class="card-value status-${tm20Class}">${tm20 != null ? tm20 + ' °C' : '—'}</div><div class="card-note">оптимум 10–16 °C</div></div>
     <div class="card"><div class="card-label">Осадки / 26 дней</div><div class="card-value status-${r26Class}">${r26 != null ? r26 + ' мм' : '—'}</div><div class="card-note">норма 40–120 мм</div></div>
     <div class="card"><div class="card-label">VPD-дней / 7</div><div class="card-value status-${vpdClass}">${vpd != null ? vpd + ' д' : '—'}</div><div class="card-note">норма: 0 (жара+сухость)</div></div>
+    <div class="card"><div class="card-label">ΣT лета / GDD</div><div class="card-value status-${gddClass}">${gdd != null ? gdd + ' °' : '—'}</div><div class="card-note">норма ≥1050 (база 5°C)</div></div>
   `;
 
   // Species breakdown
