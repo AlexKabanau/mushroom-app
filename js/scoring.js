@@ -126,6 +126,15 @@ export function scoreFromConditions(c, speciesKey = null) {
     }
   }
 
+  // VPD штраф: иссушение гименофора при высоком дефиците давления пара
+  // Применяется к трубчатым + лисичка (не опёнок — ему безразлично)
+  // ≥3 дней VPD > 1.2 кПа → шляпки пересыхают и волна угасает
+  const VPD_SPECIES = ['белый','подберёзовик','подосиновик','маслёнок','моховик','польский гриб','рыжик','лисичка'];
+  if (VPD_SPECIES.includes(speciesKey) && c.vpdHighDays != null) {
+    if      (c.vpdHighDays >= 3) score -= 8;
+    else if (c.vpdHighDays === 2) score -= 4;
+  }
+
   // Büntgen 2015: засуха >3 недель подавляет плодоношение даже после дождей
   if (c.dryDaysIn30 != null) {
     if      (c.dryDaysIn30 > 24) score -= 15;   // >80% месяца — засуха
@@ -282,6 +291,22 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
   const avg2 = slice2.length ? slice2.reduce((a, b) => a + b, 0) / slice2.length : null;
   const coldShockDelta = (avg1 !== null && avg2 !== null) ? parseFloat((avg1 - avg2).toFixed(1)) : 0;
 
+  // VPD: Vapour Pressure Deficit — сколько дней за последние 7 VPD > 1.2 кПа
+  // VPD = SVP(Tmean) × (1 − RH/100); штраф за иссушение шляпок при жаре + сухость
+  const allHumidity = [...(hist.humidity || []), ...(fc.humidity || []).slice(0, idx + 1)];
+  const vpdHighDays = (() => {
+    let count = 0;
+    const start7 = Math.max(0, endIdx - 6);
+    for (let i = start7; i <= endIdx; i++) {
+      const tM  = allTMean[i];
+      const rh  = allHumidity[i];
+      if (tM == null || rh == null) continue;
+      const svp = 0.6108 * Math.exp(17.27 * tM / (tM + 237.3));
+      if (svp * (1 - rh / 100) > 1.2) count++;
+    }
+    return count;
+  })();
+
   // Bielefeld v2: T_mean(20d) — средний температурный фон за 20 дней
   // Kasparavicius 2001, Büntgen 2015: medium-term temp average = strong predictor for boletes
   const tMean20window = allTMean.slice(Math.max(0, endIdx - 19), endIdx + 1);
@@ -308,6 +333,7 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     frostCount,
     dryDaysIn30,
     coldShockDelta,  // для MDI cold shock trigger
+    vpdHighDays,     // VPD: дней за последние 7 с VPD > 1.2 кПа
     tMean20d,        // Bielefeld v2: средний фон T за 20 дней
     rain26d          // Bielefeld v2: суммарные осадки за 26 дней
   };
@@ -324,6 +350,7 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     frostCount: conditions.frostCount,
     dryDaysIn30: conditions.dryDaysIn30,
     coldShockDelta: conditions.coldShockDelta,
+    vpdHighDays,
     tMean20d,
     rain26d
   };

@@ -296,8 +296,8 @@ async function syncAllHistorical() {
     if (!loc) continue;
     try {
       const [c, triggerWindow, histSeries] = await Promise.all([
-        // Re-fetch if conditions missing OR if new Bielefeld v2 fields not yet present
-        (d.conditions?.tMean20d != null) ? Promise.resolve(null) : fetchHistoricalConditions(loc.lat, loc.lon, d.date),
+        // Re-fetch if conditions missing OR if new fields (Bielefeld v2 / VPD) not yet present
+        (d.conditions?.tMean20d != null && d.conditions?.vpdHighDays != null) ? Promise.resolve(null) : fetchHistoricalConditions(loc.lat, loc.lon, d.date),
         fetchTriggerWindow(loc.lat, loc.lon, d.date),
         fetchHistSeries(loc.lat, loc.lon, d.date)
       ]);
@@ -1021,6 +1021,7 @@ function renderDashboard() {
   const frostToday = todayScore.frostInLast7Days;
   const tm20 = todayScore.tMean20d;
   const r26  = todayScore.rain26d;
+  const vpd  = todayScore.vpdHighDays;
   const tm20Class = tm20 == null ? 'warn'
     : (tm20 >= 10 && tm20 <= 16) ? 'ok'
     : (tm20 >= 7  && tm20 <= 19) ? 'warn'
@@ -1029,6 +1030,10 @@ function renderDashboard() {
     : r26 >= 40 ? 'ok'
     : r26 >= 20 ? 'warn'
     : 'bad';
+  const vpdClass = vpd == null ? 'warn'
+    : vpd === 0 ? 'ok'
+    : vpd <= 1  ? 'warn'
+    : 'bad';
   document.getElementById('factorCards').innerHTML = `
     <div class="card"><div class="card-label">Осадки / 14 дней</div><div class="card-value status-${sumClass}">${todayScore.rain10d} мм</div><div class="card-note">норма 20–55 мм</div></div>
     <div class="card"><div class="card-label">Влажность почвы</div><div class="card-value status-${smClass}">${todayScore.soilM.toFixed(2)}</div><div class="card-note">оптимум 0,25–0,40</div></div>
@@ -1036,6 +1041,7 @@ function renderDashboard() {
     <div class="card"><div class="card-label">Заморозок</div><div class="card-value status-${frostToday ? 'ok' : 'warn'}">${frostToday ? '❄ Был' : '—'}</div><div class="card-note">триггер опят</div></div>
     <div class="card"><div class="card-label">Т фон / 20 дней</div><div class="card-value status-${tm20Class}">${tm20 != null ? tm20 + ' °C' : '—'}</div><div class="card-note">оптимум 10–16 °C</div></div>
     <div class="card"><div class="card-label">Осадки / 26 дней</div><div class="card-value status-${r26Class}">${r26 != null ? r26 + ' мм' : '—'}</div><div class="card-note">норма 40–120 мм</div></div>
+    <div class="card"><div class="card-label">VPD-дней / 7</div><div class="card-value status-${vpdClass}">${vpd != null ? vpd + ' д' : '—'}</div><div class="card-note">норма: 0 (жара+сухость)</div></div>
   `;
 
   // Species breakdown

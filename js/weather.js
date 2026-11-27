@@ -53,7 +53,7 @@ export async function fetchWeather(lat, lon) {
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const archiveUrl = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}&start_date=${dayStr(start)}&end_date=${dayStr(yesterday)}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&timezone=${encodeURIComponent(CONFIG.timezone)}`;
+  const archiveUrl = `${CONFIG.endpoints.openMeteoArchive}?latitude=${lat}&longitude=${lon}&start_date=${dayStr(start)}&end_date=${dayStr(yesterday)}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
   const forecastUrl = `${CONFIG.endpoints.openMeteoForecast}?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,wind_speed_10m_max,soil_temperature_7_to_28cm_mean,soil_moisture_7_to_28cm_mean&past_days=1&forecast_days=14&timezone=${encodeURIComponent(CONFIG.timezone)}`;
 
@@ -68,9 +68,10 @@ export async function fetchWeather(lat, lon) {
     rain: histRain,
     soilM: archive.daily.soil_moisture_7_to_28cm_mean,
     soilT: archive.daily.soil_temperature_7_to_28cm_mean,
-    tMin: archive.daily.temperature_2m_min,  // нужно для определения заморозков
-    tMax: archive.daily.temperature_2m_max,  // нужно для lag-shifted scoring
-    apiRain: computeAPIRain(histRain)         // затухающий индекс λ=0.90
+    tMin: archive.daily.temperature_2m_min,     // нужно для определения заморозков
+    tMax: archive.daily.temperature_2m_max,     // нужно для lag-shifted scoring
+    humidity: archive.daily.relative_humidity_2m_mean, // для VPD
+    apiRain: computeAPIRain(histRain)            // затухающий индекс λ=0.90
   };
 
   // Forecast returns past_days=1 + 14 forecast days = 15 items. We want today onwards (10 days).
@@ -198,6 +199,22 @@ export async function fetchHistoricalConditions(lat, lon, date) {
     .slice(Math.max(0, dayIdx - 9), dayIdx + 1)
     .filter(t => t != null && t < 0).length;
 
+  // VPD: Vapour Pressure Deficit за последние 7 дней
+  // VPD = SVP(Tmean) × (1 − RH/100), порог 1.2 кПа
+  const vpdHighDays = (() => {
+    let count = 0;
+    for (let i = Math.max(0, dayIdx - 6); i <= dayIdx; i++) {
+      const mx  = daily.temperature_2m_max[i];
+      const mn  = daily.temperature_2m_min[i];
+      const rh  = daily.relative_humidity_2m_mean?.[i];
+      if (mx == null || mn == null || rh == null) continue;
+      const tM  = (mx + mn) / 2;
+      const svp = 0.6108 * Math.exp(17.27 * tM / (tM + 237.3));
+      if (svp * (1 - rh / 100) > 1.2) count++;
+    }
+    return count;
+  })();
+
   // Bielefeld v2: T_mean(20d) + P(26d)
   const tMean20window = [];
   for (let i = Math.max(0, dayIdx - 19); i <= dayIdx; i++) {
@@ -222,6 +239,7 @@ export async function fetchHistoricalConditions(lat, lon, date) {
     humidity: Math.round(daily.relative_humidity_2m_mean?.[dayIdx] ?? 0),
     dryDaysIn30,
     frostCount,
+    vpdHighDays,
     tMean20d,
     rain26d
   };
