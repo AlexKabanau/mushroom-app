@@ -705,3 +705,43 @@ export function checkSeasonClosed(soilT, frostCount) {
   }
   return { level: 'open', reason: null };
 }
+
+/**
+ * Forecast-based frost predictor — смотрит вперёд по прогнозу.
+ * Возвращает:
+ *   firstHardFrostIn  — дней до первой ночи tMin ≤ −2°C (или null)
+ *   firstColdSoilIn   — дней до первого дня soilT < 4°C (или null)
+ *   soilTTrend        — средний наклон soilT за 5 дней (°C/день, < 0 = охлаждение)
+ *
+ * «Жёсткий мороз» (tMin ≤ −2°C) за 1–2 дня = последний шанс для трубчатых.
+ * soilT ниже 4°C → мицелий входит в торможение, новые тела не выходят.
+ *
+ * References: Büntgen 2015; Boddy 2014 (soil freeze threshold 2–4°C).
+ */
+export function predictSeasonClose(fc, currentSoilT) {
+  if (!fc?.dates?.length) return null;
+
+  // Первая ночь с жёстким морозом (tMin ≤ −2°C)
+  let firstHardFrostIn = null;
+  for (let i = 0; i < fc.tMin.length; i++) {
+    if (fc.tMin[i] != null && fc.tMin[i] <= -2) { firstHardFrostIn = i; break; }
+  }
+
+  // Первый день когда prognoz soilT < 4°C
+  let firstColdSoilIn = null;
+  if (fc.soilT?.length) {
+    for (let i = 0; i < fc.soilT.length; i++) {
+      if (fc.soilT[i] != null && fc.soilT[i] < 4) { firstColdSoilIn = i; break; }
+    }
+  }
+
+  // Тренд soilT: наклон по первым 5 прогнозным дням (°C/день)
+  let soilTTrend = null;
+  if (fc.soilT?.length >= 3 && currentSoilT != null) {
+    const pts = Math.min(5, fc.soilT.length);
+    const lastSoilT = fc.soilT[pts - 1];
+    if (lastSoilT != null) soilTTrend = parseFloat(((lastSoilT - currentSoilT) / pts).toFixed(2));
+  }
+
+  return { firstHardFrostIn, firstColdSoilIn, soilTTrend };
+}

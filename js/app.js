@@ -6,7 +6,7 @@ import { getSettings, saveSettings, createGist, pullGist } from './gist.js';
 import { fetchWeather, fetchHistoricalConditions, fetchTriggerWindow, fetchHistSeries } from './weather.js';
 import { fetchBiotope } from './osm.js';
 import { fetchForestTrees, fetchMushroomObservations } from './inat.js';
-import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI, computeWFIDetail, checkSeasonClosed } from './scoring.js';
+import { scoreFromConditions, statusFromScore, projectDayScore, scoreSpeciesList, projectSpeciesScores, detectTPVEvents, computeWFI, computeWFIDetail, checkSeasonClosed, predictSeasonClose } from './scoring.js';
 import { scoreFromConditionsMDI } from './scoring-mdi.js';
 
 let state = null;
@@ -997,15 +997,52 @@ function renderDashboard() {
   document.getElementById('verdictTitle').textContent = title;
   document.getElementById('verdictBody').innerHTML = body;
 
-  // Season close banner: показываем если почва холодная или много морозных ночей
-  const seasonStatus = checkSeasonClosed(todayScore.soilT, todayScore.frostCount);
+  // Season close banner: текущее состояние + прогноз закрытия сезона
+  const seasonStatus  = checkSeasonClosed(todayScore.soilT, todayScore.frostCount);
+  const frostForecast = predictSeasonClose(w.fc, todayScore.soilT);
   const seasonBannerEl = document.getElementById('seasonBanner');
   if (seasonBannerEl) {
     if (seasonStatus.level !== 'open') {
+      // Уже закрыт или закрывается — показываем как раньше
       const icon = seasonStatus.level === 'closed' ? '🧊' : '🍂';
       seasonBannerEl.style.display = '';
       seasonBannerEl.className = `season-banner season-${seasonStatus.level}`;
       seasonBannerEl.innerHTML = `<span class="sb-season-icon">${icon}</span> <strong>${seasonStatus.level === 'closed' ? 'Сезон закрыт' : 'Конец сезона'}</strong> — ${seasonStatus.reason}`;
+    } else if (frostForecast) {
+      // Сезон открыт — проверяем прогноз: надвигается ли мороз?
+      const hf = frostForecast.firstHardFrostIn;  // дней до жёсткого мороза
+      const cs = frostForecast.firstColdSoilIn;   // дней до soilT < 4°C
+      const tr = frostForecast.soilTTrend;         // °C/день
+
+      if (hf !== null && hf <= 1) {
+        // Мороз завтра или сегодня ночью — последний шанс
+        seasonBannerEl.style.display = '';
+        seasonBannerEl.className = 'season-banner season-closing';
+        const dayWord = hf === 0 ? 'сегодня ночью' : 'завтра ночью';
+        seasonBannerEl.innerHTML = `<span class="sb-season-icon">🌡️</span> <strong>Последний шанс</strong> — жёсткий мороз ${dayWord} (tMin ${w.fc.tMin[hf]?.toFixed(0)}°C)`;
+      } else if (hf !== null && hf <= 4) {
+        // Мороз через 2–4 дня — торопись
+        seasonBannerEl.style.display = '';
+        seasonBannerEl.className = 'season-banner season-closing';
+        seasonBannerEl.innerHTML = `<span class="sb-season-icon">🍂</span> <strong>Мороз через ${hf} д.</strong> — последние дни трубчатых`;
+      } else if (hf !== null && hf <= 7) {
+        // Мороз в пределах недели — мягкое предупреждение
+        seasonBannerEl.style.display = '';
+        seasonBannerEl.className = 'season-banner season-closing';
+        seasonBannerEl.innerHTML = `<span class="sb-season-icon">🌡️</span> Первый мороз через ${hf} д. — окно ещё есть`;
+      } else if (cs !== null && cs <= 3) {
+        // Почва остынет до 4°C через 3 дня даже без мороза
+        seasonBannerEl.style.display = '';
+        seasonBannerEl.className = 'season-banner season-closing';
+        seasonBannerEl.innerHTML = `<span class="sb-season-icon">🌡️</span> Почва остывает — soilT < 4°C через ${cs} д.`;
+      } else if (tr !== null && tr < -0.5) {
+        // Почва охлаждается быстро (> 0.5°C в день)
+        seasonBannerEl.style.display = '';
+        seasonBannerEl.className = 'season-banner season-closing';
+        seasonBannerEl.innerHTML = `<span class="sb-season-icon">🌡️</span> Почва охлаждается (${tr > 0 ? '+' : ''}${tr}°C/день) — готовьтесь к финалу`;
+      } else {
+        seasonBannerEl.style.display = 'none';
+      }
     } else {
       seasonBannerEl.style.display = 'none';
     }
