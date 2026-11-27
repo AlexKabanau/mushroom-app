@@ -126,15 +126,45 @@ export function scoreFromConditions(c, speciesKey = null) {
     }
   }
 
-  // ΣT лета (GDD): накопленная тепловая сумма май–сентябрь (база 5°C)
-  // Büntgen 2015, Boddy 2014: тёплое лето → высокий объём мицелия → богатая осень
-  // Применяется к болетовым — опёнок и лисичка менее зависимы от летнего фона
+  // ΣT лета (GDD): накопленная тепловая сумма май–сентябрь, база 10°C
+  // Норма GDD10 для 53.5°N = 982°·d (май–сент). Скорим АНОМАЛИЮ (YTD/normal),
+  // а не абсолют — это корректно работает в любой момент сезона (не только в октябре).
+  // Высокий GDD при низких осадках (июл–авг) = засуха → штраф, не бонус.
+  // (Decision Prompt D1, Opus 2025; Tahvanainen 2016: heat × drought interaction)
   const GDD_BOLETES = ['белый','подберёзовик','подосиновик','маслёнок','моховик','польский гриб','рыжик'];
   if (GDD_BOLETES.includes(speciesKey) && c.gdd != null) {
-    if      (c.gdd >= 1050) score += 4;   // тёплое/жаркое лето — хороший запас
-    else if (c.gdd >= 800)  score += 1;   // нормальное лето — нейтрально-лёгкий бонус
-    else if (c.gdd <  600)  score -= 5;   // холодное лето — слабый мицелий
-    // 600–800: нейтрально (прохладно, но достаточно)
+    // Вычислить нормальный GDD10 для текущего DOY по таблице
+    const gddNormals = CONFIG.gdd10Normal;
+    let normalGDD = gddNormals.seasonEnd; // дефолт = полный сезон
+    if (c.date) {
+      const d = new Date(c.date);
+      const start = new Date(d.getFullYear(), 0, 0);
+      const doy = Math.floor((d - start) / 86400000);
+      // Найти ближайший checkpoint
+      const checkDoys = Object.keys(gddNormals)
+        .filter(k => !isNaN(k))
+        .map(Number)
+        .sort((a, b) => a - b);
+      const nearest = checkDoys.reduce((prev, cur) =>
+        Math.abs(cur - doy) < Math.abs(prev - doy) ? cur : prev, checkDoys[0]);
+      normalGDD = gddNormals[nearest] || gddNormals.seasonEnd;
+    }
+    // Аномалия: 1.0 = норма, >1.1 = тёплое лето, <0.85 = холодное
+    const gddAnom = normalGDD > 0 ? c.gdd / normalGDD : 1.0;
+    const rainJulAug = c.gddRainJulAug ?? null;
+    const normalRain = gddNormals.normalJulAugRain; // 160мм
+
+    if (gddAnom < 0.85) {
+      score -= 3;  // холодное лето → слабый мицелий
+    } else if (gddAnom > 1.10) {
+      if (rainJulAug == null || rainJulAug >= normalRain * 0.9) {
+        score += 2;   // тёплое И влажное лето — хороший запас мицелия
+      } else if (rainJulAug < normalRain * 0.7) {
+        score -= 4;   // жаркое И сухое — засуха подавила мицелий
+      }
+      // 70–90% нормы: нейтрально (тепло, но умеренно сухо)
+    }
+    // 0.85–1.10: норма — 0 баллов
   }
 
   // VPD штраф: иссушение гименофора при высоком дефиците давления пара
@@ -347,7 +377,8 @@ export function projectDayScore(hist, fc, idx, speciesKey = null) {
     vpdHighDays,     // VPD: дней за последние 7 с VPD > 1.2 кПа
     tMean20d,        // Bielefeld v2: средний фон T за 20 дней
     rain26d,         // Bielefeld v2: суммарные осадки за 26 дней
-    gdd: hist.gdd ?? null  // ΣT лета: GDD май–сент текущего года (база 5°C)
+    gdd: hist.gdd ?? null,          // ΣT лета: GDD май–сент текущего года (база 10°C)
+    gddRainJulAug: hist.gddRainJulAug ?? null, // осадки июл–авг для drought gate
   };
 
   const score = scoreFromConditions(conditions, speciesKey);

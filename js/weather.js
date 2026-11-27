@@ -80,21 +80,47 @@ export async function fetchWeather(lat, lon) {
     apiRain: computeAPIRain(histRain)            // затухающий индекс λ=0.90
   };
 
-  // Compute GDD (Growing Degree Days, base 5°C) from May 1 to end of September
-  // ΣT лета: накопленная тепловая сумма — предиктор объёма мицелия к осени
+  // Compute GDD (Growing Degree Days, base 10°C) from May 1 to end of September
+  // ΣT лета: накопленная тепловая сумма — предиктор объёма мицелия к осени.
+  // База 10°C (не 5°C): норма May–Sep GDD10 при 53.5°N ≈ 982°·d.
+  // С базой 5°C норма ≈ 1620°·d и порог ≥1050 срабатывал каждый год без различий.
+  // (Decision Prompt D1, Opus/Carbon/Grok consensus 2025)
   let gdd = null;
+  let gddDates = null;
   if (gddData?.daily?.temperature_2m_max?.length) {
     let acc = 0;
     const mx = gddData.daily.temperature_2m_max;
     const mn = gddData.daily.temperature_2m_min;
+    gddDates = gddData.daily.time;
     for (let i = 0; i < mx.length; i++) {
       if (mx[i] == null || mn[i] == null) continue;
-      acc += Math.max(0, (mx[i] + mn[i]) / 2 - 5);
+      acc += Math.max(0, (mx[i] + mn[i]) / 2 - 10); // base 10°C
     }
     gdd = Math.round(acc);
   }
   // Attach to hist so projectDayScore can read it without extra parameters
   hist.gdd = gdd;
+
+  // Compute Jul–Aug precipitation total for GDD drought gate
+  // Normal Jul–Aug rain at 53.5°N ≈ 160mm (Minsk normals 1991–2020)
+  let gddRainJulAug = null;
+  if (gddDates && gddData?.daily?.temperature_2m_max?.length) {
+    // Re-use the gdd request's date range to compute rain (we need a separate hist rain for Jul-Aug)
+    // Approximate from archiveData: sum rain for July and August of current year
+    if (hist.rain && hist.dates) {
+      let rainSum = 0;
+      for (let i = 0; i < hist.dates.length; i++) {
+        const d = hist.dates[i];
+        const m = parseInt(d.slice(5, 7));
+        const y = parseInt(d.slice(0, 4));
+        if (y === today.getFullYear() && (m === 7 || m === 8)) {
+          rainSum += hist.rain[i] ?? 0;
+        }
+      }
+      gddRainJulAug = Math.round(rainSum);
+    }
+  }
+  hist.gddRainJulAug = gddRainJulAug;
 
   // Forecast returns past_days=1 + 14 forecast days = 15 items. We want today onwards (10 days).
   const todayStr = dayStr(today);
