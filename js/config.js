@@ -135,7 +135,11 @@ export const CONFIG = {
                           // Andrew 2018 показал авг 19-20 пик, но iNat (n=283) чётко указывает на июль
       lagDays: 12,
       noTriggerWFI: 0.90, // летний вид — нет холодового шока, дождь+тепло = триггер
-      wave: { activeDays: 10, decayDays: 10, refractoryDays: 14 }, // долгий летний слой, быстрое восстановление
+      // Wave параметры Cantharellus: Danell 1994, Kasparavičius 2000, Grok/Carbon consensus 2025
+      // Тела живут 30–44 дня, волны перекрываются — жёсткий refractory неуместен.
+      // activeDays 10→18: один flush длится 2–3 недели при стабильной влажности.
+      // refractoryDays 14→8: лисичка способна рефлашнуть за 8–10 дней при дожде.
+      wave: { activeDays: 18, decayDays: 14, refractoryDays: 8 },
       note: "Летний вид. Ель+берёза+мох. Пик: июль–август.",
     },
     маслёнок: {
@@ -192,10 +196,14 @@ export const CONFIG = {
         rain10dMin: 8, rain10dMax: 75,
       },
       peakMonths: [9, 10],
-      lagDays: 4,
+      // lagDays: Armillaria — спорно (Carbon: 10, Grok: 4). Компромисс = 8.
+      // День 0 = начало cold shock (не конец rain window).
+      // Rhizomorph → primordia дифференциация 7–10 дней (Shim 2006, Chen 2020).
+      lagDays: 8,
       specialRule: "frost", // +35% (MDI) / +15 (классика) если за 7 дней был мороз
-      wave: { activeDays: 5, decayDays: 4, refractoryDays: 22 }, // бурный взрыв, долгое восстановление
-      note: "Пни, корни. Триггер — первые заморозки. Самый быстрый: 3–5 дней.",
+      // refractoryDays 22→28: обычно 1–2 волны за сезон, долгое восстановление ресурсов.
+      wave: { activeDays: 5, decayDays: 5, refractoryDays: 28 },
+      note: "Пни, корни. Триггер — первые заморозки. Лаг ~8 дней от cold shock.",
     },
     "груздь настоящий": {
       emoji: "🍄",
