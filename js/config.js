@@ -48,8 +48,16 @@ export const CONFIG = {
     decayDays: 7,        // дней затухания (переростки, новые тела не выходят)
     refractoryDays: 18,  // дней рефрактерного минимума (диапазон 14–28, Büntgen 2015)
     noTriggerWFI: 0.65,  // WFI-заглушка если ТВП-триггер не обнаружен в hist
-    tpvRainMin: 15,      // мм за 5 дней для срабатывания ТВП-триггера
-    tpvDeltaTMin: 5,     // °C падение (prevAvg5d − currAvg5d) для ТВП-триггера
+    // ТВП-триггер — два независимых пути (Decision Prompt D3, консенсус 3/3 моделей):
+    // moistureTrigger: достаточно дождя без холодового шока (лисичка, русула, ранние болетовые)
+    // shockTrigger: нужен холодовый шок + дождь (болеты осенью, опёнок, грузди)
+    // Каждый вид имеет triggers: { moisture, shock } в speciesConfig.
+    // Дефолт (если не задан для вида): оба активны (AND-поведение через OR двух путей).
+    tpvRainMin: 15,      // мм за 5 дней — порог moisture trigger
+    tpvRainShock: 8,     // мм за 5 дней — достаточно для shock trigger (меньше, т.к. главное ΔT)
+    tpvDeltaTMin: 5,     // °C падение (prevAvg5d − currAvg5d) для shock trigger
+    tpvMaxShockTemp: 18, // °C: shock trigger не срабатывает если средняя T за 3д > этого значения
+                         // (предотвращает июльское падение 32°→26° от триггера осенних грибов)
   },
 
   // Видо-специфичные пороги и паттерны
@@ -76,6 +84,7 @@ export const CONFIG = {
       },
       peakMonths: [7, 8, 9], // Andrew 2018: пик 3-4 сент; iNat Belarus: июл=50% rel → добавлен
       lagDays: 7,
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути
       note: "Осинник. Триггер — пожелтение осины. Пик: июл–сент.",
     },
     подберёзовик: {
@@ -95,6 +104,7 @@ export const CONFIG = {
       },
       peakMonths: [7, 8, 9, 10], // iNat Belarus: июл=54% rel (31obs), длинный сезон подтверждён
       lagDays: 6,
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути
       note: "Берёзняк. Самый длинный сезон: июль–октябрь.",
     },
     белый: {
@@ -114,6 +124,7 @@ export const CONFIG = {
       },
       peakMonths: [8, 9], // Andrew 2018: пик 12 сент; iNat Belarus: авг=95% rel (99obs) ≈ сен=100% → два равных слоя
       lagDays: 10,        // Bielefeld: пик корреляции осадков на lag=10, подтверждено данными
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути (классический триггер: дождь + холод)
       note: "Ельник/смешанный. Лаг 10 дней подтверждён данными. Пик: авг–сент.",
     },
     лисичка: {
@@ -134,6 +145,7 @@ export const CONFIG = {
       peakMonths: [7, 8], // iNat Belarus: июл=100% (132obs!!) >> авг=41% — ГЛАВНЫЙ пик июль, не август
                           // Andrew 2018 показал авг 19-20 пик, но iNat (n=283) чётко указывает на июль
       lagDays: 12,
+      triggers: { moisture: true, shock: false }, // летний вид: только moisture trigger, холодовый шок стопорит
       noTriggerWFI: 0.90, // летний вид — нет холодового шока, дождь+тепло = триггер
       // Wave параметры Cantharellus: Danell 1994, Kasparavičius 2000, Grok/Carbon consensus 2025
       // Тела живут 30–44 дня, волны перекрываются — жёсткий refractory неуместен.
@@ -159,6 +171,7 @@ export const CONFIG = {
       },
       peakMonths: [9, 10], // Andrew 2018: пик 26 сент, сдвинут позже чем ожидалось
       lagDays: 5,
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути
       note: "Молодые сосновые посадки 15–40 лет. Появляется быстро. Пик: сент–окт.",
     },
     рыжик: {
@@ -178,6 +191,7 @@ export const CONFIG = {
       },
       peakMonths: [8, 9],
       lagDays: 6,
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути
       note: "Сосновые посадки 20–40 лет, сухие почвы.",
     },
     опёнок: {
@@ -200,6 +214,7 @@ export const CONFIG = {
       // День 0 = начало cold shock (не конец rain window).
       // Rhizomorph → primordia дифференциация 7–10 дней (Shim 2006, Chen 2020).
       lagDays: 8,
+      triggers: { moisture: false, shock: true }, // только shock trigger — требует cold snap
       specialRule: "frost", // +35% (MDI) / +15 (классика) если за 7 дней был мороз
       // refractoryDays 22→28: обычно 1–2 волны за сезон, долгое восстановление ресурсов.
       wave: { activeDays: 5, decayDays: 5, refractoryDays: 28 },
@@ -222,6 +237,7 @@ export const CONFIG = {
       },
       peakMonths: [8, 9],
       lagDays: 15,
+      triggers: { moisture: true, shock: true }, // грузди: оба пути, но важнее moisture
       wave: { activeDays: 10, decayDays: 9, refractoryDays: 22 }, // медленный долгий слой, тяжёлое восстановление
       note: "Берёза, нейтральные почвы. Лаг 14–20 дней, нужна высокая влажность.",
     },
@@ -242,6 +258,7 @@ export const CONFIG = {
       },
       peakMonths: [9, 10], // Andrew 2018: пик 21-24 сент, не август
       lagDays: 16,
+      triggers: { moisture: true, shock: true }, // грузди: оба пути
       wave: { activeDays: 10, decayDays: 9, refractoryDays: 22 }, // как груздь настоящий
       note: "Берёза у болот. Самые влажные условия из всех. Лаг 14–18 дней. Пик: сент–окт.",
     },
@@ -262,6 +279,7 @@ export const CONFIG = {
       },
       peakMonths: [9, 10], // Andrew 2018: пик 27-28 сент
       lagDays: 12,
+      triggers: { moisture: true, shock: true }, // лактариус: оба пути
       wave: { activeDays: 9, decayDays: 8, refractoryDays: 20 }, // умеренно длиннее болетовых
       note: "Берёза, кислые почвы. Похожа на груздь, менее влажная. Пик: сент–окт.",
     },
@@ -282,6 +300,7 @@ export const CONFIG = {
       },
       peakMonths: [8, 9],
       lagDays: 7,
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути
       note: "Широкий диапазон. Опушки, молодняк, смешанный лес.",
     },
     "зеленушка": {
@@ -290,6 +309,7 @@ export const CONFIG = {
       // Запрещена к продаже в РФ и ряде стран ЕС. Показываем скор для поиска,
       // но предупреждение обязательно.
       safetyWarning: "⚠️ Спорный вид — связан с рабдомиолизом при регулярном употреблении (Bedry 2001, NEJM). Не рекомендован в РБ и ЕС.",
+      triggers: { moisture: false, shock: true }, // только shock trigger, поздний холодовый вид
       scoring: {
         soilT: { ok: [4, 11], fair: [2, 14] },
         soilM: { ok: [0.18, 0.32], fair: [0.13, 0.38] },
@@ -318,6 +338,7 @@ export const CONFIG = {
       },
       peakMonths: [8, 9, 10], // Andrew 2018: пик 19-21 сент; iNat Belarus: авг=42% rel (36obs) значимый
       lagDays: 8,
+      triggers: { moisture: true, shock: true }, // болетовый — оба пути
       note: "Ель, сосна, старые посадки. Пик: авг–окт.",
     },
   },

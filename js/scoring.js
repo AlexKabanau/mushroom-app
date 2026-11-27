@@ -441,9 +441,23 @@ function daysBetween(d1, d2) {
 }
 
 /**
- * Scan hist for ТВП events: rain5d ≥ tpvRainMin AND temp drop ≥ tpvDeltaTMin.
+ * Scan hist for ТВП events using two independent trigger paths:
+ *
+ *   moistureTrigger: rain5d ≥ tpvRainMin (no cold shock required)
+ *   shockTrigger:    rain5d ≥ tpvRainShock AND deltaT ≥ tpvDeltaTMin
+ *                    AND currAvg3d ≤ tpvMaxShockTemp (guards against summer heat drops)
+ *
+ * Each event is tagged with triggerType: 'moisture' | 'shock' | 'both'.
+ * Species filtering (which path applies) is done in projectSpeciesScores
+ * via cfg.triggers = { moisture, shock }.
+ *
  * deltaT = prevAvg(5d before window) − currAvg(5d window ending at i).
- * Returns [{date, rain5d, deltaT}], deduped within 3 days.
+ * ВАЖНО: намеренно используем ВОЗДУШНУЮ температуру (temperature_2m),
+ * не почвенную (soil_temperature_7_to_28cm).
+ * Правило Василькова — метеорологическое событие, измеряется по воздуху.
+ * (Grok D4: "ΔT 4–8°C air Tmean; в почве 7–28см — только 1–2.5°C")
+ *
+ * Returns [{date, rain5d, deltaT, triggerType}], deduped within 3 days.
  */
 export function detectTPVEvents(hist) {
   if (!hist?.dates?.length) return [];
@@ -451,13 +465,7 @@ export function detectTPVEvents(hist) {
   const n = hist.dates.length;
   const events = [];
 
-  // Pre-compute daily mean temperatures (optional: requires tMax+tMin)
-  // ВАЖНО: намеренно используем ВОЗДУШНУЮ температуру (temperature_2m),
-  // не почвенную (soil_temperature_7_to_28cm).
-  // Обоснование: Grok 4.7 (Decision Prompt D4): "ΔT 4–8°C применимо к air Tmean.
-  // В слое почвы 7–28см та же фронтальная смена даёт только 1–2.5°C — триггер
-  // никогда не сработает если использовать soil temp."
-  // Правило Василькова — метеорологическое событие, измеряется по воздуху.
+  // Pre-compute daily mean air temperatures
   const hasTmp = hist.tMax && hist.tMin && hist.tMax.length === n;
   const tMean = hasTmp
     ? hist.tMax.map((mx, j) => (mx + (hist.tMin[j] ?? mx)) / 2)
@@ -468,26 +476,43 @@ export function detectTPVEvents(hist) {
     const rain5d = (hist.rain || [])
       .slice(i - 4, i + 1)
       .reduce((a, b) => a + (b || 0), 0);
-    if (rain5d < W.tpvRainMin) continue;
 
-    // Temperature drop check (skip if no temp data)
-    if (tMean) {
+    const isMoisture = rain5d >= W.tpvRainMin;
+    let isShock = false;
+    let deltaT = null;
+
+    if (tMean && rain5d >= W.tpvRainShock) {
       const prevSlice = tMean.slice(i - 9, i - 4); // 5 days before
       const currSlice = tMean.slice(i - 4, i + 1); // current 5 days
-      if (!prevSlice.length || !currSlice.length) continue;
-      const prevAvg = prevSlice.reduce((a, b) => a + b, 0) / prevSlice.length;
-      const currAvg = currSlice.reduce((a, b) => a + b, 0) / currSlice.length;
-      if (prevAvg - currAvg < W.tpvDeltaTMin) continue;
-
-      const date = hist.dates[i];
-      // Deduplicate: skip if within 3 days of previous event
-      if (events.length && daysBetween(events[events.length - 1].date, date) <= 3) continue;
-      events.push({
-        date,
-        rain5d: +rain5d.toFixed(1),
-        deltaT: +(prevAvg - currAvg).toFixed(1)
-      });
+      if (prevSlice.length && currSlice.length) {
+        const prevAvg = prevSlice.reduce((a, b) => a + b, 0) / prevSlice.length;
+        const currAvg = currSlice.reduce((a, b) => a + b, 0) / currSlice.length;
+        const drop = prevAvg - currAvg;
+        // Guard: if current 3-day avg > maxShockTemp, this is a summer heat fluctuation,
+        // not an autumn cold front — don't trigger cold-shock species (опёнок, зеленушка).
+        const curr3d = tMean.slice(Math.max(0, i - 2), i + 1);
+        const curr3dAvg = curr3d.reduce((a, b) => a + b, 0) / curr3d.length;
+        if (drop >= W.tpvDeltaTMin && curr3dAvg <= W.tpvMaxShockTemp) {
+          isShock = true;
+          deltaT = +drop.toFixed(1);
+        }
+      }
     }
+
+    if (!isMoisture && !isShock) continue;
+
+    const date = hist.dates[i];
+    const triggerType = (isMoisture && isShock) ? 'both' : isMoisture ? 'moisture' : 'shock';
+
+    // Deduplicate: skip if within 3 days of previous event of same type
+    if (events.length && daysBetween(events[events.length - 1].date, date) <= 3) continue;
+
+    events.push({
+      date,
+      rain5d: +rain5d.toFixed(1),
+      deltaT: deltaT ?? 0,
+      triggerType,
+    });
   }
   return events;
 }
@@ -662,8 +687,21 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
     // Видо-специфичные параметры волны: мержим глобальные с overrides из speciesConfig
     const spNoTrigger = cfg?.noTriggerWFI ?? null;
     const spWave = cfg?.wave ? { ...CONFIG.wave, ...cfg.wave } : CONFIG.wave;
-    const wfiDetail = (triggers !== null && displayDate)
-      ? computeWFIDetail(triggers, displayDate, lag, spNoTrigger, spWave)
+
+    // Фильтрация триггеров по типу: moisture / shock / both (D3, Decision Prompt 2025)
+    // Если у вида не задан triggers — используются все триггеры (обратная совместимость)
+    const spTrig = cfg?.triggers;
+    const spTriggers = !spTrig
+      ? triggers  // нет настройки → все
+      : triggers?.filter(t => {
+          if (spTrig.moisture && spTrig.shock) return true;        // оба — все типы
+          if (spTrig.moisture && !spTrig.shock) return t.triggerType === 'moisture' || t.triggerType === 'both';
+          if (!spTrig.moisture && spTrig.shock) return t.triggerType === 'shock' || t.triggerType === 'both';
+          return false; // оба false — триггер никогда не срабатывает
+        });
+
+    const wfiDetail = (spTriggers !== null && displayDate)
+      ? computeWFIDetail(spTriggers, displayDate, lag, spNoTrigger, spWave)
       : null;
     const wfi = wfiDetail ? wfiDetail.wfi : null;
     const score = wfi !== null
