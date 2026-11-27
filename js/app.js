@@ -1100,6 +1100,9 @@ function renderDashboard() {
           const cfg = CONFIG.speciesConfig?.[s.species];
           const lagNote = cfg?.lagDays ? `<span class="sb-lag">ждать ~${cfg.lagDays} дн от дождя</span>` : '';
           const peakBadge = s.isPeak ? `<span class="sb-peak">пик</span>` : '';
+          const safetyBadge = cfg?.safetyWarning
+            ? `<span class="sb-safety" title="${cfg.safetyWarning}" style="cursor:help;color:#C0392B;font-size:11px;margin-left:3px">⚠️</span>`
+            : '';
           const altEntry = todayAltScores.find(a => a.species === s.species);
           const altBadge = altEntry != null
             ? `<span class="sb-alt" title="${altLabel === 'MDI' ? 'MDI v2.0' : 'Классика'}">${altLabel}:${altEntry.score}</span>`
@@ -1113,7 +1116,7 @@ function renderDashboard() {
             waveBadge = `<span class="sb-wave ${phaseClass}" title="Триггер: ${wd.triggerDate || '?'}">${wd.label}${dayTip}</span>`;
           }
           return `<div class="sb-row">
-            <span class="sb-name">${s.species}${peakBadge}</span>
+            <span class="sb-name">${s.species}${peakBadge}${safetyBadge}</span>
             <div class="sb-bar"><div class="sb-fill ${s.status}" style="width:${s.score}%"></div></div>
             <span class="score-pill ${s.status} sb-score">${s.score}</span>
             ${altBadge}
@@ -2311,14 +2314,21 @@ function showForecastModal(idx) {
   const dotIcon = r.status === 'green' ? '▲' : r.status === 'yellow' ? '●' : '✕';
 
   const speciesHtml = r.allSpecies?.length
-    ? `<div style="margin:14px 0 0">${r.allSpecies.map(s => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #F2EBDA">
-          <span style="font-size:13px;color:#4A3F35">${s.species}${s.isPeak ? ' 🌟' : ''}</span>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:11px;color:#A89880">↯ ${s.triggerScore}</span>
-            <span class="score-pill ${s.status}">${s.score}</span>
+    ? `<div style="margin:14px 0 0">${r.allSpecies.map(s => {
+        const spCfg = CONFIG.speciesConfig?.[s.species];
+        const warn = spCfg?.safetyWarning;
+        return `
+        <div style="border-bottom:1px solid #F2EBDA">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0">
+            <span style="font-size:13px;color:#4A3F35">${s.species}${s.isPeak ? ' 🌟' : ''}${warn ? ' <span title="${warn}" style="color:#C0392B;cursor:help">⚠️</span>' : ''}</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:11px;color:#A89880">↯ ${s.triggerScore}</span>
+              <span class="score-pill ${s.status}">${s.score}</span>
+            </div>
           </div>
-        </div>`).join('')}</div>`
+          ${warn ? `<div style="font-size:11px;color:#C0392B;padding:0 0 6px;line-height:1.5">${warn}</div>` : ''}
+        </div>`;
+      }).join('')}</div>`
     : '';
 
   const hintHtml = r.hint

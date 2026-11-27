@@ -452,6 +452,12 @@ export function detectTPVEvents(hist) {
   const events = [];
 
   // Pre-compute daily mean temperatures (optional: requires tMax+tMin)
+  // ВАЖНО: намеренно используем ВОЗДУШНУЮ температуру (temperature_2m),
+  // не почвенную (soil_temperature_7_to_28cm).
+  // Обоснование: Grok 4.7 (Decision Prompt D4): "ΔT 4–8°C применимо к air Tmean.
+  // В слое почвы 7–28см та же фронтальная смена даёт только 1–2.5°C — триггер
+  // никогда не сработает если использовать soil temp."
+  // Правило Василькова — метеорологическое событие, измеряется по воздуху.
   const hasTmp = hist.tMax && hist.tMin && hist.tMax.length === n;
   const tMean = hasTmp
     ? hist.tMax.map((mx, j) => (mx + (hist.tMin[j] ?? mx)) / 2)
