@@ -680,7 +680,17 @@ export function projectSpeciesScores(hist, fc, idx, speciesList, scoreFn = score
 
   return speciesList.map(sp => {
     const cfg = CONFIG.speciesConfig?.[sp];
-    const lag  = cfg?.lagDays ?? 7;
+    const baseLag = cfg?.lagDays ?? 7;
+
+    // Сезонный множитель лага: осенью (soilT < 11°C) ферментативные процессы замедлены.
+    // Плавная формула: +0% при soilT=12°C → +50% при soilT=2°C (Opus/Carbon/Grok 2025).
+    // Используем soilT из fc на текущий день прогноза как прокси.
+    const curSoilT = fc.soilT?.[idx] ?? null;
+    const lagMultiplier = (curSoilT != null && curSoilT < 12)
+      ? (1 + Math.max(0, (12 - curSoilT) / 20))  // +5%/°C ниже 12°C, макс +50% при 2°C
+      : 1.0;
+    const lag = Math.round(baseLag * lagMultiplier);
+
     const triggerIdx = idx - lag; // which day's conditions drove today's crop
 
     let conditions;
